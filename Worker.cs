@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Options;
+
 namespace Systems_One_MQTT_Service
 {
     public class Worker : BackgroundService
@@ -17,6 +19,7 @@ namespace Systems_One_MQTT_Service
                 {
                     _logger.LogInformation("Worker running at: {time}", DateTimeOffset.Now);
                 }
+
                 await Task.Delay(1000, stoppingToken);
             }
         }
