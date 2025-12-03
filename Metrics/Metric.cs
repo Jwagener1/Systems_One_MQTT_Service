@@ -1,4 +1,4 @@
-namespace Systems_One_MQTT_Service.Abstractions;
+namespace Systems_One_MQTT_Service.Metrics;
 
 /// <summary>
 /// Represents a metric data point collected from a source.

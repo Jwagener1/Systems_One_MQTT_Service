@@ -1,3 +1,5 @@
+using Systems_One_MQTT_Service.Metrics;
+
 namespace Systems_One_MQTT_Service.Abstractions;
 
 /// <summary>
