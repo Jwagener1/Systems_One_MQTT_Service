@@ -7,7 +7,7 @@ namespace Systems_One_MQTT_Service.Hosting
         private readonly ILogger<MonitoringWorker> _logger;
         private readonly IEnumerable<IMetricCollector> _collectors;
         private readonly IMetricPublisher _publisher;
-        private const int IntervalMs = 5000;
+        private const int IntervalMs = 300000; // 5 minutes
 
         public MonitoringWorker(ILogger<MonitoringWorker> logger, IEnumerable<IMetricCollector> collectors, IMetricPublisher publisher)
         {

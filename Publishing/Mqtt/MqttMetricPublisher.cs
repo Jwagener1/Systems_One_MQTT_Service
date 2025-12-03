@@ -31,9 +31,13 @@ public class MqttMetricPublisher : IMetricPublisher
             var factory = new MqttFactory();
             _client = factory.CreateMqttClient();
 
+            var statusTopic = string.Join('/', _settings.BaseTopic, Environment.MachineName, "status");
+
             var builder = new MqttClientOptionsBuilder()
                 .WithTcpServer(_settings.BrokerUrl?.Replace("mqtt://", string.Empty) ?? "localhost", _settings.BrokerPort)
-                .WithClientId(_settings.ClientId ?? Environment.MachineName);
+                .WithClientId(_settings.ClientId ?? Environment.MachineName)
+                .WithWillTopic(statusTopic)
+                .WithWillPayload("offline");
 
             if (!string.IsNullOrEmpty(_settings.Username))
                 builder = builder.WithCredentials(_settings.Username, _settings.Password);
@@ -62,6 +66,12 @@ public class MqttMetricPublisher : IMetricPublisher
                     if (_client.IsConnected)
                     {
                         _logger.LogInformation("Connected to MQTT broker on attempt {Attempt}", attempt);
+                        // Publish online status
+                        var onlineMessage = new MqttApplicationMessageBuilder()
+                            .WithTopic(statusTopic)
+                            .WithPayload("online")
+                            .Build();
+                        await _client.PublishAsync(onlineMessage, cancellationToken);
                         return;
                     }
                 }
@@ -122,13 +132,14 @@ public class MqttMetricPublisher : IMetricPublisher
             foreach (var metric in metrics)
             {
                 var topic = MqttTopicBuilder.Build(_settings.BaseTopic, machine, metric.Source, metric.Id);
+                var epochSeconds = metric.Timestamp.ToUnixTimeSeconds();
                 var payload = JsonSerializer.Serialize(new
                 {
                     metric.Id,
                     metric.Name,
                     metric.Value,
                     metric.Unit,
-                    metric.Timestamp,
+                    Timestamp = epochSeconds,
                     metric.Source,
                     metric.Tags
                 });
@@ -160,11 +171,19 @@ public class MqttMetricPublisher : IMetricPublisher
     {
         using (_logger.BeginScope(new Dictionary<string, object> { ["Component"] = nameof(MqttMetricPublisher) }))
         {
+            var statusTopic = string.Join('/', _settings.BaseTopic, Environment.MachineName, "status");
             if (_client is { IsConnected: true })
             {
                 _logger.LogInformation("Disconnecting from MQTT broker");
                 try
                 {
+                    // Publish offline status before disconnect
+                    var offlineMessage = new MqttApplicationMessageBuilder()
+                        .WithTopic(statusTopic)
+                        .WithPayload("offline")
+                        .Build();
+                    await _client.PublishAsync(offlineMessage, cancellationToken);
+
                     await _client.DisconnectAsync();
                     _logger.LogInformation("Disconnected from MQTT broker");
                 }

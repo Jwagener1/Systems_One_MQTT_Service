@@ -36,13 +36,25 @@ builder.Services.AddSingleton<IScheduler, IntervalScheduler>();
 
 // Production registrations
 builder.Services.AddSingleton<IMetricCollector, OsVersionCollector>();
+builder.Services.AddSingleton<IMetricCollector, OsUptimeCollector>();
+builder.Services.AddSingleton<IMetricCollector>(sp => new DiskFreeCollector(
+    sp.GetRequiredService<ILogger<DiskFreeCollector>>(),
+    builder.Configuration
+        .GetSection("Drives:Monitors")
+        .GetChildren()
+        .Select(c => c["Path"]) // IEnumerable<string?> from config
+        .Where(p => !string.IsNullOrWhiteSpace(p))
+        .Select(p => p!) // unwrap to IEnumerable<string>
+));
 builder.Services.AddSingleton<IMetricCollector, AppCollector>();
 builder.Services.AddSingleton<IMetricCollector, DatabaseCollector>();
 
 // Publishers (placeholder)
 builder.Services.AddSingleton<IMetricPublisher, MqttMetricPublisher>();
 
-builder.Services.AddHostedService<MonitoringWorker>();
+// Hosted services
+builder.Services.AddHostedService<MonitoringWorker>(); // periodic 5-min loop
+builder.Services.AddHostedService<AppRealtimeWorker>(); // near-realtime app running + settings changes
 
 var host = builder.Build();
 await host.RunAsync();

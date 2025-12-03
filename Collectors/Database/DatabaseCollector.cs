@@ -8,7 +8,7 @@ namespace Systems_One_MQTT_Service.Collectors.Database;
 
 public class DatabaseCollector : IMetricCollector
 {
-    public string Name => "Database";
+    public string Name => "DB";
 
     private readonly DatabaseCollectorOptions _options;
     private readonly string _connectionString;
@@ -39,7 +39,7 @@ public class DatabaseCollector : IMetricCollector
 
             var statusMetric = new Metric
             {
-                Id = "db.connection.status",
+                Id = "db.connection",
                 Name = "Database Connection Status",
                 Source = "DB",
                 Timestamp = DateTimeOffset.UtcNow,
@@ -69,7 +69,7 @@ public class DatabaseCollector : IMetricCollector
                 var summary = await ItemLogQuery.ExecuteWindowSummaryAsync(conn, table, startUtc, endUtc, cancellationToken);
                 metrics.Add(new Metric
                 {
-                    Id = "db.itemlog.window.summary",
+                    Id = "db.itemlog.summary",
                     Name = "ItemLog Summary (5-minute window)",
                     Source = "DB",
                     Timestamp = DateTimeOffset.UtcNow,
@@ -80,34 +80,6 @@ public class DatabaseCollector : IMetricCollector
                         { "endUtc", endUtc }
                     }
                 });
-
-                var rows = await ItemLogQuery.ExecuteWindowAsync(conn, table, startUtc, endUtc, cancellationToken);
-                _logger.LogInformation("Retrieved {RowCount} rows from {Table} for window", rows.Count, table);
-                metrics.Add(new Metric
-                {
-                    Id = "db.itemlog.window.count",
-                    Name = "ItemLog Rows in 5-minute window",
-                    Source = "DB",
-                    Timestamp = DateTimeOffset.UtcNow,
-                    Value = rows.Count,
-                    Tags = new Dictionary<string, object>
-                    {
-                        { "startUtc", startUtc },
-                        { "endUtc", endUtc }
-                    }
-                });
-
-                if (rows.Count > 0)
-                {
-                    metrics.Add(new Metric
-                    {
-                        Id = "db.itemlog.window.sample",
-                        Name = "ItemLog Sample Row",
-                        Source = "DB",
-                        Timestamp = DateTimeOffset.UtcNow,
-                        Value = rows[0]
-                    });
-                }
             }
             catch (Exception ex)
             {

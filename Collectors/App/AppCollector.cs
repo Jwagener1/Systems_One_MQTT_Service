@@ -15,6 +15,9 @@ public class AppCollector : IMetricCollector
     private readonly string _processName;
     private readonly ILogger<AppCollector> _logger;
 
+    private bool? _lastRunning;
+    private readonly Dictionary<string, string> _lastSettingsHashes = new();
+
     public AppCollector(IOptions<AppCollectorOptions> options, ILogger<AppCollector> logger)
     {
         _logger = logger;
@@ -37,34 +40,42 @@ public class AppCollector : IMetricCollector
             var metrics = new List<Metric>();
 
             var (isRunning, processCount, pathMatched) = GetProcessState(_processName, _exePath, _logger);
-            _logger.LogInformation("Process check: {ProcessName} running={IsRunning}, count={Count}, pathMatched={Matched}", _processName, isRunning, processCount, pathMatched);
-            metrics.Add(new Metric
+            if (_lastRunning != isRunning)
             {
-                Id = "app.running",
-                Name = "App Running",
-                Value = isRunning,
-                Source = "App",
-                Timestamp = DateTimeOffset.UtcNow,
-                Tags = new Dictionary<string, object>
+                _logger.LogInformation("App running state changed: {Old} -> {New}", _lastRunning, isRunning);
+                _lastRunning = isRunning;
+                metrics.Add(new Metric
                 {
-                    { "process_name", _processName },
-                    { "exe_path", _exePath },
-                    { "process_count", processCount },
-                    { "path_match", pathMatched }
-                }
-            });
+                    Id = "app.running",
+                    Name = "App Running",
+                    Value = isRunning,
+                    Source = "App",
+                    Timestamp = DateTimeOffset.UtcNow,
+                    Tags = new Dictionary<string, object>
+                    {
+                        { "process_name", _processName },
+                        { "exe_path", _exePath },
+                        { "process_count", processCount },
+                        { "path_match", pathMatched }
+                    }
+                });
+            }
 
             try
             {
                 if (Directory.Exists(_settingsDir))
                 {
-                    _logger.LogInformation("Scanning settings directory {Dir}", _settingsDir);
                     foreach (var path in Directory.EnumerateFiles(_settingsDir, "*.json", SearchOption.TopDirectoryOnly))
                     {
                         var key = Path.GetFileNameWithoutExtension(path);
-                        try
+                        using var fs = File.OpenRead(path);
+                        using var sha = System.Security.Cryptography.SHA256.Create();
+                        var hashBytes = sha.ComputeHash(fs);
+                        var hash = Convert.ToHexString(hashBytes);
+
+                        if (!_lastSettingsHashes.TryGetValue(key, out var oldHash) || !string.Equals(hash, oldHash, StringComparison.OrdinalIgnoreCase))
                         {
-                            using var fs = File.OpenRead(path);
+                            fs.Position = 0;
                             var doc = JsonDocument.Parse(fs);
                             metrics.Add(new Metric
                             {
@@ -75,61 +86,23 @@ public class AppCollector : IMetricCollector
                                 Timestamp = DateTimeOffset.UtcNow,
                                 Tags = new Dictionary<string, object>
                                 {
-                                    { "path", path }
+                                    { "path", path },
+                                    { "hash", hash }
                                 }
                             });
-                            _logger.LogDebug("Parsed settings {Key} from {Path}", key, path);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Settings parse error for {Path}", path);
-                            metrics.Add(new Metric
-                            {
-                                Id = $"app.settings.{key}.error",
-                                Name = $"{key} read error",
-                                Value = ex.Message,
-                                Source = "App",
-                                Timestamp = DateTimeOffset.UtcNow,
-                                Tags = new Dictionary<string, object>
-                                {
-                                    { "path", path }
-                                }
-                            });
+                            _lastSettingsHashes[key] = hash;
+                            _logger.LogInformation("Settings changed: {Key}", key);
                         }
                     }
                 }
                 else
                 {
                     _logger.LogWarning("Settings directory missing: {Dir}", _settingsDir);
-                    metrics.Add(new Metric
-                    {
-                        Id = "app.settings.dir.missing",
-                        Name = "Settings directory missing",
-                        Value = false,
-                        Source = "App",
-                        Timestamp = DateTimeOffset.UtcNow,
-                        Tags = new Dictionary<string, object>
-                        {
-                            { "settings_dir", _settingsDir }
-                        }
-                    });
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error scanning settings directory {Dir}", _settingsDir);
-                metrics.Add(new Metric
-                {
-                    Id = "app.settings.dir.error",
-                    Name = "Settings directory error",
-                    Value = ex.Message,
-                    Source = "App",
-                    Timestamp = DateTimeOffset.UtcNow,
-                    Tags = new Dictionary<string, object>
-                    {
-                        { "settings_dir", _settingsDir }
-                    }
-                });
             }
 
             return Task.FromResult<IEnumerable<Metric>>(metrics);

@@ -9,7 +9,7 @@ namespace Systems_One_MQTT_Service.Collectors.OS;
 /// </summary>
 public class OsVersionCollector : IMetricCollector
 {
-    public string Name => "OS Version";
+    public string Name => "OS";
     private readonly ILogger<OsVersionCollector> _logger;
 
     public OsVersionCollector(ILogger<OsVersionCollector> logger)
@@ -21,12 +21,10 @@ public class OsVersionCollector : IMetricCollector
     {
         using (_logger.BeginScope(new Dictionary<string, object> { ["Component"] = nameof(OsVersionCollector) }))
         {
-            _logger.LogDebug("Collecting OS version metrics");
+            _logger.LogDebug("Collecting OS metrics");
             var metrics = new List<Metric>();
 
             var osVersion = Environment.OSVersion;
-            var osDescription = RuntimeInformation.OSDescription;
-            var osArchitecture = RuntimeInformation.OSArchitecture.ToString();
 
             metrics.Add(new Metric
             {
@@ -41,19 +39,6 @@ public class OsVersionCollector : IMetricCollector
                     { "version_major", osVersion.Version.Major },
                     { "version_minor", osVersion.Version.Minor },
                     { "version_build", osVersion.Version.Build }
-                }
-            });
-
-            metrics.Add(new Metric
-            {
-                Id = "os.description",
-                Name = "Operating System Description",
-                Value = osDescription,
-                Source = "OS",
-                Timestamp = DateTimeOffset.UtcNow,
-                Tags = new Dictionary<string, object>
-                {
-                    { "architecture", osArchitecture }
                 }
             });
 

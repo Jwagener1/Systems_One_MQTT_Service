@@ -11,7 +11,7 @@ public class DiskFreeCollector : IMetricCollector
     private readonly ILogger<DiskFreeCollector>? _logger;
     private readonly HashSet<string>? _driveLetters; // normalized like "C:" or "/" on Unix
 
-    public string Name => "Disk Free Space";
+    public string Name => "OS";
 
     /// <summary>
     /// Create a DiskFreeCollector.
@@ -45,6 +45,7 @@ public class DiskFreeCollector : IMetricCollector
                 drives = drives.Where(d => _driveLetters.Contains(NormalizeDriveLetter(d.Name)));
             }
 
+            var list = new List<object>();
             foreach (var drive in drives)
             {
                 try
@@ -56,68 +57,15 @@ public class DiskFreeCollector : IMetricCollector
 
                     var driveName = drive.Name.TrimEnd('\\', '/');
 
-                    metrics.Add(new Metric
+                    list.Add(new
                     {
-                        Id = $"disk.{driveName}.total",
-                        Name = $"Disk Total Space ({driveName})",
-                        Value = Math.Round(totalSpaceGB, 2),
-                        Unit = "GB",
-                        Source = "OS",
-                        Timestamp = DateTimeOffset.UtcNow,
-                        Tags = new Dictionary<string, object>
-                        {
-                            { "drive", driveName },
-                            { "drive_type", drive.DriveType.ToString() },
-                            { "format", drive.DriveFormat }
-                        }
-                    });
-
-                    metrics.Add(new Metric
-                    {
-                        Id = $"disk.{driveName}.free",
-                        Name = $"Disk Free Space ({driveName})",
-                        Value = Math.Round(freeSpaceGB, 2),
-                        Unit = "GB",
-                        Source = "OS",
-                        Timestamp = DateTimeOffset.UtcNow,
-                        Tags = new Dictionary<string, object>
-                        {
-                            { "drive", driveName },
-                            { "drive_type", drive.DriveType.ToString() },
-                            { "format", drive.DriveFormat }
-                        }
-                    });
-
-                    metrics.Add(new Metric
-                    {
-                        Id = $"disk.{driveName}.used",
-                        Name = $"Disk Used Space ({driveName})",
-                        Value = Math.Round(usedSpaceGB, 2),
-                        Unit = "GB",
-                        Source = "OS",
-                        Timestamp = DateTimeOffset.UtcNow,
-                        Tags = new Dictionary<string, object>
-                        {
-                            { "drive", driveName },
-                            { "drive_type", drive.DriveType.ToString() },
-                            { "format", drive.DriveFormat }
-                        }
-                    });
-
-                    metrics.Add(new Metric
-                    {
-                        Id = $"disk.{driveName}.usage",
-                        Name = $"Disk Usage ({driveName})",
-                        Value = Math.Round(usagePercent, 2),
-                        Unit = "percent",
-                        Source = "OS",
-                        Timestamp = DateTimeOffset.UtcNow,
-                        Tags = new Dictionary<string, object>
-                        {
-                            { "drive", driveName },
-                            { "drive_type", drive.DriveType.ToString() },
-                            { "format", drive.DriveFormat }
-                        }
+                        drive = driveName,
+                        totalGB = Math.Round(totalSpaceGB, 2),
+                        freeGB = Math.Round(freeSpaceGB, 2),
+                        usedGB = Math.Round(usedSpaceGB, 2),
+                        usagePercent = Math.Round(usagePercent, 2),
+                        driveType = drive.DriveType.ToString(),
+                        format = drive.DriveFormat
                     });
                 }
                 catch (Exception ex)
@@ -125,6 +73,15 @@ public class DiskFreeCollector : IMetricCollector
                     _logger?.LogWarning(ex, "Failed to collect metrics for drive {DriveName}", drive.Name);
                 }
             }
+
+            metrics.Add(new Metric
+            {
+                Id = "os.drives",
+                Name = "Operating System Drives",
+                Value = list,
+                Source = "OS",
+                Timestamp = DateTimeOffset.UtcNow
+            });
         }
         catch (Exception ex)
         {
