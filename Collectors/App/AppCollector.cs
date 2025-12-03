@@ -13,9 +13,11 @@ public class AppCollector : IMetricCollector
     private readonly string _settingsDir;
     private readonly string _exePath;
     private readonly string _processName;
+    private readonly ILogger<AppCollector> _logger;
 
-    public AppCollector(IOptions<AppCollectorOptions> options)
+    public AppCollector(IOptions<AppCollectorOptions> options, ILogger<AppCollector> logger)
     {
+        _logger = logger;
         var opts = options.Value;
         _settingsDir = string.IsNullOrWhiteSpace(opts.SettingsDir)
             ? "C:/Users/Public/Documents/SystemOne_App_Settings"
@@ -30,73 +32,97 @@ public class AppCollector : IMetricCollector
 
     public Task<IEnumerable<Metric>> CollectAsync(CancellationToken cancellationToken = default)
     {
-        var metrics = new List<Metric>();
-
-        var (isRunning, processCount, pathMatched) = GetProcessState(_processName, _exePath);
-        metrics.Add(new Metric
+        using (_logger.BeginScope(new Dictionary<string, object> { ["Component"] = nameof(AppCollector) }))
         {
-            Id = "app.running",
-            Name = "App Running",
-            Value = isRunning,
-            Source = "App",
-            Timestamp = DateTimeOffset.UtcNow,
-            Tags = new Dictionary<string, object>
-            {
-                { "process_name", _processName },
-                { "exe_path", _exePath },
-                { "process_count", processCount },
-                { "path_match", pathMatched }
-            }
-        });
+            var metrics = new List<Metric>();
 
-        try
-        {
-            if (Directory.Exists(_settingsDir))
+            var (isRunning, processCount, pathMatched) = GetProcessState(_processName, _exePath, _logger);
+            _logger.LogInformation("Process check: {ProcessName} running={IsRunning}, count={Count}, pathMatched={Matched}", _processName, isRunning, processCount, pathMatched);
+            metrics.Add(new Metric
             {
-                foreach (var path in Directory.EnumerateFiles(_settingsDir, "*.json", SearchOption.TopDirectoryOnly))
+                Id = "app.running",
+                Name = "App Running",
+                Value = isRunning,
+                Source = "App",
+                Timestamp = DateTimeOffset.UtcNow,
+                Tags = new Dictionary<string, object>
                 {
-                    var key = Path.GetFileNameWithoutExtension(path);
-                    try
+                    { "process_name", _processName },
+                    { "exe_path", _exePath },
+                    { "process_count", processCount },
+                    { "path_match", pathMatched }
+                }
+            });
+
+            try
+            {
+                if (Directory.Exists(_settingsDir))
+                {
+                    _logger.LogInformation("Scanning settings directory {Dir}", _settingsDir);
+                    foreach (var path in Directory.EnumerateFiles(_settingsDir, "*.json", SearchOption.TopDirectoryOnly))
                     {
-                        using var fs = File.OpenRead(path);
-                        var doc = JsonDocument.Parse(fs);
-                        metrics.Add(new Metric
+                        var key = Path.GetFileNameWithoutExtension(path);
+                        try
                         {
-                            Id = $"app.settings.{key}",
-                            Name = $"{key} settings",
-                            Value = doc.RootElement.Clone(),
-                            Source = "App",
-                            Timestamp = DateTimeOffset.UtcNow,
-                            Tags = new Dictionary<string, object>
+                            using var fs = File.OpenRead(path);
+                            var doc = JsonDocument.Parse(fs);
+                            metrics.Add(new Metric
                             {
-                                { "path", path }
-                            }
-                        });
-                    }
-                    catch (Exception ex)
-                    {
-                        metrics.Add(new Metric
+                                Id = $"app.settings.{key}",
+                                Name = $"{key} settings",
+                                Value = doc.RootElement.Clone(),
+                                Source = "App",
+                                Timestamp = DateTimeOffset.UtcNow,
+                                Tags = new Dictionary<string, object>
+                                {
+                                    { "path", path }
+                                }
+                            });
+                            _logger.LogDebug("Parsed settings {Key} from {Path}", key, path);
+                        }
+                        catch (Exception ex)
                         {
-                            Id = $"app.settings.{key}.error",
-                            Name = $"{key} read error",
-                            Value = ex.Message,
-                            Source = "App",
-                            Timestamp = DateTimeOffset.UtcNow,
-                            Tags = new Dictionary<string, object>
+                            _logger.LogWarning(ex, "Settings parse error for {Path}", path);
+                            metrics.Add(new Metric
                             {
-                                { "path", path }
-                            }
-                        });
+                                Id = $"app.settings.{key}.error",
+                                Name = $"{key} read error",
+                                Value = ex.Message,
+                                Source = "App",
+                                Timestamp = DateTimeOffset.UtcNow,
+                                Tags = new Dictionary<string, object>
+                                {
+                                    { "path", path }
+                                }
+                            });
+                        }
                     }
                 }
+                else
+                {
+                    _logger.LogWarning("Settings directory missing: {Dir}", _settingsDir);
+                    metrics.Add(new Metric
+                    {
+                        Id = "app.settings.dir.missing",
+                        Name = "Settings directory missing",
+                        Value = false,
+                        Source = "App",
+                        Timestamp = DateTimeOffset.UtcNow,
+                        Tags = new Dictionary<string, object>
+                        {
+                            { "settings_dir", _settingsDir }
+                        }
+                    });
+                }
             }
-            else
+            catch (Exception ex)
             {
+                _logger.LogError(ex, "Error scanning settings directory {Dir}", _settingsDir);
                 metrics.Add(new Metric
                 {
-                    Id = "app.settings.dir.missing",
-                    Name = "Settings directory missing",
-                    Value = false,
+                    Id = "app.settings.dir.error",
+                    Name = "Settings directory error",
+                    Value = ex.Message,
                     Source = "App",
                     Timestamp = DateTimeOffset.UtcNow,
                     Tags = new Dictionary<string, object>
@@ -105,27 +131,12 @@ public class AppCollector : IMetricCollector
                     }
                 });
             }
-        }
-        catch (Exception ex)
-        {
-            metrics.Add(new Metric
-            {
-                Id = "app.settings.dir.error",
-                Name = "Settings directory error",
-                Value = ex.Message,
-                Source = "App",
-                Timestamp = DateTimeOffset.UtcNow,
-                Tags = new Dictionary<string, object>
-                {
-                    { "settings_dir", _settingsDir }
-                }
-            });
-        }
 
-        return Task.FromResult<IEnumerable<Metric>>(metrics);
+            return Task.FromResult<IEnumerable<Metric>>(metrics);
+        }
     }
 
-    private static (bool isRunning, int processCount, bool pathMatched) GetProcessState(string processName, string exePath)
+    private static (bool isRunning, int processCount, bool pathMatched) GetProcessState(string processName, string exePath, ILogger logger)
     {
         try
         {
@@ -149,15 +160,17 @@ public class AppCollector : IMetricCollector
                         }
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    logger.LogDebug(ex, "Unable to read process module path for PID {Pid}", p.Id);
                 }
             }
 
             return (matched || count > 0, count, matched);
         }
-        catch
+        catch (Exception ex)
         {
+            logger.LogError(ex, "Error checking process state for {ProcessName}", processName);
             return (false, 0, false);
         }
     }
