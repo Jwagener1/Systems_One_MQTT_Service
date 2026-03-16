@@ -5,6 +5,16 @@ namespace Systems_One_MQTT_Service.Collectors.Database;
 
 public static class ItemLogQuery
 {
+    private static readonly System.Text.RegularExpressions.Regex SafeTableName =
+        new(@"^[A-Za-z_][A-Za-z0-9_]*$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static string ValidateTableName(string tableName)
+    {
+        if (string.IsNullOrWhiteSpace(tableName) || !SafeTableName.IsMatch(tableName))
+            throw new ArgumentException($"Invalid table name: '{tableName}'. Only alphanumeric characters and underscores are allowed.");
+        return tableName;
+    }
+
     public static async Task<List<Dictionary<string, object?>>> ExecuteWindowAsync(
         SqlConnection connection,
         string tableName,
@@ -12,10 +22,11 @@ public static class ItemLogQuery
         DateTime endUtc,
         CancellationToken cancellationToken)
     {
+        var safeTable = ValidateTableName(tableName);
         using var cmd = connection.CreateCommand();
         cmd.CommandType = CommandType.Text;
         cmd.CommandText = $@"SELECT Id, ItemDateTime, Barcode, Length, Width, Height, Weight, BoxVolume, LiquidVolume, NoDimension, NoWeight, Sent, ImageSent, Valid, Complete, ItemSpec, ItemCount, LegacyId
-                             FROM [{tableName}]
+                             FROM [{safeTable}]
                              WHERE ItemDateTime >= @StartUtc AND ItemDateTime < @EndUtc";
 
         cmd.Parameters.Add(new SqlParameter("@StartUtc", SqlDbType.DateTime) { Value = startUtc });
@@ -58,6 +69,7 @@ public static class ItemLogQuery
         DateTime endUtc,
         CancellationToken cancellationToken)
     {
+        var safeTable = ValidateTableName(tableName);
         using var cmd = connection.CreateCommand();
         cmd.CommandType = CommandType.Text;
         cmd.CommandText = $@"
@@ -70,7 +82,7 @@ public static class ItemLogQuery
                 SUM(CASE WHEN CAST(ImageSent AS INT) = 1 THEN 1 ELSE 0 END) AS Image_Sent,
                 SUM(CASE WHEN ISNULL(ItemSpec, 0) <> 0 THEN 1 ELSE 0 END) AS Item_Out_Of_Spec,
                 SUM(CASE WHEN ISNULL(ItemCount, 0) <> 1 THEN 1 ELSE 0 END) AS More_Than_1_Item
-            FROM [{tableName}]
+            FROM [{safeTable}]
             WHERE ItemDateTime >= @StartUtc AND ItemDateTime < @EndUtc";
 
         cmd.Parameters.Add(new SqlParameter("@StartUtc", SqlDbType.DateTime) { Value = startUtc });

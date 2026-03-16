@@ -48,6 +48,8 @@ builder.Services.AddSingleton<IMetricCollector>(sp => new DiskFreeCollector(
 ));
 builder.Services.AddSingleton<IMetricCollector, AppCollector>();
 builder.Services.AddSingleton<IMetricCollector, DatabaseCollector>();
+builder.Services.AddSingleton<IMetricCollector, CpuUsageCollector>();
+builder.Services.AddSingleton<IMetricCollector, MemoryUsageCollector>();
 
 // Publishers (placeholder)
 builder.Services.AddSingleton<IMetricPublisher, MqttMetricPublisher>();
