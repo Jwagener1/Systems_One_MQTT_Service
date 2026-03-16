@@ -10,6 +10,9 @@ using Systems_One_MQTT_Service.Logging;
 
 var builder = Host.CreateApplicationBuilder(args);
 
+// Load appsettings.Production.json if it exists (for installer-deployed credentials)
+builder.Configuration.AddJsonFile("appsettings.Production.json", optional: true, reloadOnChange: true);
+
 SerilogStartup.ConfigureSerilog(builder);
 
 if (OperatingSystem.IsWindows())

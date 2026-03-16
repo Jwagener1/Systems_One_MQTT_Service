@@ -16,27 +16,102 @@ SetupIconFile=Icons\systems_one.ico
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
-; Require admin rights to install a Windows service
 PrivilegesRequired=admin
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-; Include all published output files
 Source: "publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 
 [Run]
-; Install as a Windows Service after setup
 Filename: "sc.exe"; Parameters: "create ""{#MyAppName}"" binPath=""{app}\{#MyAppExeName}"" start=auto"; \
   Flags: runhidden; StatusMsg: "Installing Windows Service..."
+Filename: "sc.exe"; Parameters: "failure ""{#MyAppName}"" reset=86400 actions=restart/5000/restart/10000/restart/30000"; \
+  Flags: runhidden; StatusMsg: "Configuring service recovery..."
 Filename: "sc.exe"; Parameters: "start ""{#MyAppName}"""; \
   Flags: runhidden; StatusMsg: "Starting Windows Service..."
 
 [UninstallRun]
-; Stop and remove the Windows Service on uninstall
 Filename: "sc.exe"; Parameters: "stop ""{#MyAppName}"""; Flags: runhidden
 Filename: "sc.exe"; Parameters: "delete ""{#MyAppName}"""; Flags: runhidden
+
+[Code]
+var
+  DbPage: TInputQueryWizardPage;
+  MqttPage: TInputQueryWizardPage;
+
+procedure InitializeWizard;
+begin
+  // Database configuration page
+  DbPage := CreateInputQueryPage(wpSelectDir,
+    'Database Configuration',
+    'Enter the SQL Server connection details.',
+    'These credentials will be stored locally on this machine.');
+  DbPage.Add('Server (e.g. 192.168.1.16,1433):', False);
+  DbPage.Add('Database Name:', False);
+  DbPage.Add('Table Name:', False);
+  DbPage.Add('Username:', False);
+  DbPage.Add('Password:', True);
+
+  // Set defaults
+  DbPage.Values[0] := '192.168.1.16,1433';
+  DbPage.Values[1] := 'Systems_One';
+  DbPage.Values[2] := 'ItemLog';
+  DbPage.Values[3] := '';
+  DbPage.Values[4] := '';
+
+  // MQTT configuration page
+  MqttPage := CreateInputQueryPage(DbPage.ID,
+    'MQTT Configuration',
+    'Enter the MQTT broker connection details.',
+    'These credentials will be stored locally on this machine.');
+  MqttPage.Add('Broker URL (e.g. mqtt://192.168.1.16):', False);
+  MqttPage.Add('Broker Port:', False);
+  MqttPage.Add('Client ID:', False);
+  MqttPage.Add('Base Topic:', False);
+  MqttPage.Add('Username:', False);
+  MqttPage.Add('Password:', True);
+
+  // Set defaults
+  MqttPage.Values[0] := 'mqtt://192.168.1.16';
+  MqttPage.Values[1] := '1883';
+  MqttPage.Values[2] := 'systems-one-service';
+  MqttPage.Values[3] := 'test';
+  MqttPage.Values[4] := '';
+  MqttPage.Values[5] := '';
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ConfigContent: String;
+  ConfigPath: String;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    ConfigContent :=
+      '{' + #13#10 +
+      '  "Database": {' + #13#10 +
+      '    "Server": "' + DbPage.Values[0] + '",' + #13#10 +
+      '    "DatabaseName": "' + DbPage.Values[1] + '",' + #13#10 +
+      '    "TableName": "' + DbPage.Values[2] + '",' + #13#10 +
+      '    "Username": "' + DbPage.Values[3] + '",' + #13#10 +
+      '    "Password": "' + DbPage.Values[4] + '"' + #13#10 +
+      '  },' + #13#10 +
+      '  "Mqtt": {' + #13#10 +
+      '    "BrokerUrl": "' + MqttPage.Values[0] + '",' + #13#10 +
+      '    "BrokerPort": ' + MqttPage.Values[1] + ',' + #13#10 +
+      '    "ClientId": "' + MqttPage.Values[2] + '",' + #13#10 +
+      '    "BaseTopic": "' + MqttPage.Values[3] + '",' + #13#10 +
+      '    "Username": "' + MqttPage.Values[4] + '",' + #13#10 +
+      '    "Password": "' + MqttPage.Values[5] + '"' + #13#10 +
+      '  }' + #13#10 +
+      '}';
+
+    ConfigPath := ExpandConstant('{app}\appsettings.Production.json');
+    SaveStringToFile(ConfigPath, ConfigContent, False);
+  end;
+end;
