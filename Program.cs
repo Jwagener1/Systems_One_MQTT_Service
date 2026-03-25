@@ -11,27 +11,33 @@ using Systems_One_MQTT_Service.Publishing.Mqtt;
 using Systems_One_MQTT_Service.Logging;
 
 // ──────────────────────────────────────────────────────────────────
-// Configuration loading order (first found wins per key):
+// Configuration loading order:
 //   1. C:\Users\Public\Documents\MQTT_Service\appsettings.json
 //   2. {AppDirectory}\appsettings.json  (fallback)
 //
-// No environment variables, no user secrets, no appsettings.Production.json,
-// no appsettings.{Environment}.json — one file, two locations, that's it.
+// No auto-loading from environment variables, user secrets, or
+// appsettings.{Environment}.json. One file, two locations.
 // ──────────────────────────────────────────────────────────────────
 
 var sharedConfigDir = @"C:\Users\Public\Documents\MQTT_Service";
 var sharedConfigPath = Path.Combine(sharedConfigDir, "appsettings.json");
 var appDirConfigPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
 
+// Detect environment from DOTNET_ENVIRONMENT or ASPNETCORE_ENVIRONMENT
+var environment = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+    ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+    ?? "Production";
+
 var builder = Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings
 {
     Args = args,
     ApplicationName = "Systems One MQTT Service",
     ContentRootPath = AppContext.BaseDirectory,
-    DisableDefaults = true  // No auto-loading of config, logging, etc.
+    EnvironmentName = environment,
+    DisableDefaults = true
 });
 
-// Load config explicitly — shared location first, app directory as fallback
+// Load config explicitly
 if (File.Exists(sharedConfigPath))
 {
     builder.Configuration.AddJsonFile(sharedConfigPath, optional: false, reloadOnChange: true);
@@ -50,8 +56,9 @@ else
     Console.WriteLine($"  Service will start with default values.");
 }
 
+Console.WriteLine($"[Config] Environment: {environment}");
+
 // Set up logging
-builder.Logging.AddConfiguration(builder.Configuration.GetSection("Logging"));
 SerilogStartup.ConfigureSerilog(builder);
 
 if (OperatingSystem.IsWindows())

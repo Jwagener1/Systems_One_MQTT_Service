@@ -5,7 +5,7 @@ using Systems_One_MQTT_Service.Metrics;
 namespace Systems_One_MQTT_Service.Collectors.OS;
 
 /// <summary>
-/// Collects memory usage information.
+/// Collects memory usage information as a single consolidated metric.
 /// </summary>
 public class MemoryUsageCollector : IMetricCollector, IDisposable
 {
@@ -48,32 +48,42 @@ public class MemoryUsageCollector : IMetricCollector, IDisposable
         {
             var gcInfo = GC.GetGCMemoryInfo();
             var totalMemoryBytes = gcInfo.TotalAvailableMemoryBytes;
-            var totalMemoryMB = totalMemoryBytes / 1024.0 / 1024.0;
+            var totalMemoryGB = totalMemoryBytes / 1024.0 / 1024.0 / 1024.0;
 
-            double availableMemoryMB;
+            double availableMemoryGB;
             if (_availableMemoryCounter != null && OperatingSystem.IsWindows())
             {
-                availableMemoryMB = _availableMemoryCounter.NextValue();
+                availableMemoryGB = _availableMemoryCounter.NextValue() / 1024.0; // MBytes → GB
             }
             else
             {
-                availableMemoryMB = (totalMemoryBytes - gcInfo.MemoryLoadBytes) / 1024.0 / 1024.0;
+                availableMemoryGB = (totalMemoryBytes - gcInfo.MemoryLoadBytes) / 1024.0 / 1024.0 / 1024.0;
             }
 
-            var usedMemoryMB = totalMemoryMB - availableMemoryMB;
-            var memoryUsagePercent = (usedMemoryMB / totalMemoryMB) * 100;
-            var now = _clock.UtcNow;
+            var usedMemoryGB = totalMemoryGB - availableMemoryGB;
+            var usagePercent = totalMemoryGB > 0 ? (usedMemoryGB / totalMemoryGB) * 100 : 0;
 
-            _logger?.LogTrace("Memory raw: Total={TotalMB}MB, Available={AvailMB}MB, Used={UsedMB}MB",
-                Math.Round(totalMemoryMB), Math.Round(availableMemoryMB), Math.Round(usedMemoryMB));
+            _logger?.LogTrace("Memory raw: Total={TotalGB:F2}GB, Available={AvailGB:F2}GB, Used={UsedGB:F2}GB",
+                totalMemoryGB, availableMemoryGB, usedMemoryGB);
 
-            metrics.Add(new Metric { Id = "memory.total", Name = "Total Memory", Value = Math.Round(totalMemoryMB, 2), Unit = "MB", Source = "OS", Timestamp = now });
-            metrics.Add(new Metric { Id = "memory.available", Name = "Available Memory", Value = Math.Round(availableMemoryMB, 2), Unit = "MB", Source = "OS", Timestamp = now });
-            metrics.Add(new Metric { Id = "memory.used", Name = "Used Memory", Value = Math.Round(usedMemoryMB, 2), Unit = "MB", Source = "OS", Timestamp = now });
-            metrics.Add(new Metric { Id = "memory.usage", Name = "Memory Usage", Value = Math.Round(memoryUsagePercent, 2), Unit = "percent", Source = "OS", Timestamp = now });
+            metrics.Add(new Metric
+            {
+                Id = "memory",
+                Name = "Memory",
+                Value = new
+                {
+                    totalGB = Math.Round(totalMemoryGB, 2),
+                    freeGB = Math.Round(availableMemoryGB, 2),
+                    usedGB = Math.Round(usedMemoryGB, 2),
+                    usagePercent = Math.Round(usagePercent, 2)
+                },
+                Unit = "GB",
+                Source = "OS",
+                Timestamp = _clock.UtcNow
+            });
 
-            _logger?.LogDebug("Memory collected: {UsedMB}MB / {TotalMB}MB ({UsagePercent}%)",
-                Math.Round(usedMemoryMB), Math.Round(totalMemoryMB), Math.Round(memoryUsagePercent, 1));
+            _logger?.LogDebug("Memory: {UsedGB:F1}GB / {TotalGB:F1}GB ({Usage:F1}%)",
+                usedMemoryGB, totalMemoryGB, usagePercent);
         }
         catch (Exception ex)
         {

@@ -16,31 +16,31 @@ public class MemoryUsageCollectorTests
     }
 
     [Fact]
-    public async Task CollectAsync_ReturnsFourMetrics()
+    public async Task CollectAsync_ReturnsSingleMetric()
     {
         var metrics = (await _collector.CollectAsync()).ToList();
-        metrics.Should().HaveCount(4);
+        metrics.Should().HaveCount(1);
     }
 
     [Fact]
-    public async Task CollectAsync_ContainsExpectedMetricIds()
+    public async Task CollectAsync_MetricIdIsMemory()
     {
         var metrics = (await _collector.CollectAsync()).ToList();
-        var ids = metrics.Select(m => m.Id).ToList();
-        ids.Should().Contain("memory.total");
-        ids.Should().Contain("memory.available");
-        ids.Should().Contain("memory.used");
-        ids.Should().Contain("memory.usage");
+        metrics[0].Id.Should().Be("memory");
     }
 
     [Fact]
-    public async Task CollectAsync_AllValuesAreNonNegative()
+    public async Task CollectAsync_ValueIsConsolidated()
     {
         var metrics = (await _collector.CollectAsync()).ToList();
-        foreach (var m in metrics)
-        {
-            Convert.ToDouble(m.Value).Should().BeGreaterOrEqualTo(0);
-        }
+        var value = metrics[0].Value;
+        value.Should().NotBeNull();
+        // Value should be an anonymous type with totalGB, freeGB, usedGB, usagePercent
+        var json = System.Text.Json.JsonSerializer.Serialize(value);
+        json.Should().Contain("totalGB");
+        json.Should().Contain("freeGB");
+        json.Should().Contain("usedGB");
+        json.Should().Contain("usagePercent");
     }
 
     [Fact]

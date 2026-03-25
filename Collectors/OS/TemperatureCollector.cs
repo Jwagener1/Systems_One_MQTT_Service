@@ -1,4 +1,3 @@
-using System.Management;
 using Systems_One_MQTT_Service.Abstractions;
 using Systems_One_MQTT_Service.Metrics;
 
@@ -6,6 +5,8 @@ namespace Systems_One_MQTT_Service.Collectors.OS;
 
 /// <summary>
 /// Collects PC temperature metrics from thermal zones.
+/// On Windows: requires admin for WMI root\WMI, falls back to perf counters.
+/// On Linux: reads /sys/class/thermal/thermal_zone*/temp.
 /// </summary>
 public class TemperatureCollector : IMetricCollector
 {
@@ -23,14 +24,27 @@ public class TemperatureCollector : IMetricCollector
 
     public async Task<IEnumerable<Metric>> CollectAsync(CancellationToken cancellationToken = default)
     {
+        _logger.LogTrace("TemperatureCollector.CollectAsync started");
         var metrics = new List<Metric>();
         var now = _clock.UtcNow;
 
         try
         {
-            var readings = OperatingSystem.IsWindows()
-                ? await GetWindowsTemperaturesAsync()
-                : await GetLinuxTemperaturesAsync();
+            List<TempReading> readings;
+
+            if (OperatingSystem.IsWindows())
+            {
+                readings = await GetWindowsTemperaturesAsync();
+            }
+            else if (OperatingSystem.IsLinux())
+            {
+                readings = await GetLinuxTemperaturesAsync();
+            }
+            else
+            {
+                _logger.LogDebug("Temperature monitoring not supported on this platform");
+                return metrics;
+            }
 
             if (readings.Count > 0)
             {
@@ -39,37 +53,40 @@ public class TemperatureCollector : IMetricCollector
 
                 metrics.Add(new Metric
                 {
-                    Id = "system.temperature.average",
-                    Name = "Average System Temperature",
-                    Value = Math.Round(avg, 1),
-                    Unit = "°C",
-                    Source = "OS",
-                    Timestamp = now,
-                    Tags = new Dictionary<string, object>
+                    Id = "temperature",
+                    Name = "System Temperature",
+                    Value = new
                     {
-                        { "sensor_count", readings.Count },
-                        { "max_temp", Math.Round(max, 1) },
-                        { "status", GetStatus(max) }
-                    }
-                });
-
-                metrics.Add(new Metric
-                {
-                    Id = "system.temperature.sensors",
-                    Name = "Temperature Sensors",
-                    Value = readings.Select(r => new { r.Name, r.Temperature, r.Source }).ToList(),
+                        averageC = Math.Round(avg, 1),
+                        maxC = Math.Round(max, 1),
+                        sensorCount = readings.Count,
+                        status = GetStatus(max),
+                        sensors = readings.Select(r => new { r.Name, temperatureC = r.Temperature, r.Source }).ToList()
+                    },
                     Unit = "°C",
                     Source = "OS",
                     Timestamp = now
                 });
+
+                _logger.LogDebug("Temperature: avg={Avg:F1}°C, max={Max:F1}°C from {Count} sensors ({Status})",
+                    avg, max, readings.Count, GetStatus(max));
             }
             else
             {
+                _logger.LogDebug("No temperature sensors detected");
                 metrics.Add(new Metric
                 {
-                    Id = "system.temperature.status",
-                    Name = "Temperature Monitoring",
-                    Value = "No sensors detected",
+                    Id = "temperature",
+                    Name = "System Temperature",
+                    Value = new
+                    {
+                        averageC = (double?)null,
+                        maxC = (double?)null,
+                        sensorCount = 0,
+                        status = "unavailable",
+                        sensors = Array.Empty<object>()
+                    },
+                    Unit = "°C",
                     Source = "OS",
                     Timestamp = now
                 });
@@ -89,11 +106,13 @@ public class TemperatureCollector : IMetricCollector
 
         await Task.Run(() =>
         {
-            // Try MSAcpi_ThermalZoneTemperature (WMI root\WMI)
+            // Method 1: MSAcpi_ThermalZoneTemperature (requires admin/elevated)
             try
             {
-                using var searcher = new ManagementObjectSearcher("root\\WMI", "SELECT * FROM MSAcpi_ThermalZoneTemperature");
-                foreach (ManagementObject obj in searcher.Get())
+                _logger.LogTrace("Trying MSAcpi_ThermalZoneTemperature (root\\WMI)");
+                using var searcher = new System.Management.ManagementObjectSearcher("root\\WMI",
+                    "SELECT * FROM MSAcpi_ThermalZoneTemperature");
+                foreach (System.Management.ManagementObject obj in searcher.Get())
                 {
                     try
                     {
@@ -102,26 +121,32 @@ public class TemperatureCollector : IMetricCollector
                         var celsius = (Convert.ToDouble(temp) / 10.0) - 273.15;
                         if (celsius is > -50 and < 150)
                         {
-                            readings.Add(new TempReading
-                            {
-                                Name = obj["InstanceName"]?.ToString() ?? "Thermal Zone",
-                                Temperature = Math.Round(celsius, 1),
-                                Source = "MSAcpi"
-                            });
+                            var name = obj["InstanceName"]?.ToString() ?? "Thermal Zone";
+                            readings.Add(new TempReading { Name = name, Temperature = Math.Round(celsius, 1), Source = "MSAcpi" });
+                            _logger.LogTrace("MSAcpi sensor: {Name} = {Temp}°C", name, celsius);
                         }
                     }
-                    catch (Exception ex) { _logger.LogDebug(ex, "Error reading thermal zone entry"); }
+                    catch (Exception ex) { _logger.LogTrace(ex, "Error reading MSAcpi thermal zone entry"); }
                 }
             }
-            catch (Exception ex) { _logger.LogDebug(ex, "MSAcpi_ThermalZoneTemperature not available"); }
+            catch (System.Management.ManagementException ex)
+            {
+                _logger.LogDebug("MSAcpi_ThermalZoneTemperature not available: {Message} (may need admin privileges)", ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "MSAcpi_ThermalZoneTemperature query failed");
+            }
 
-            // Fallback: ThermalZoneInformation perf counter
+            // Method 2: Win32_PerfRawData_Counters_ThermalZoneInformation (no admin required)
             if (readings.Count == 0)
             {
                 try
                 {
-                    using var searcher = new ManagementObjectSearcher("root\\CIMV2", "SELECT * FROM Win32_PerfRawData_Counters_ThermalZoneInformation");
-                    foreach (ManagementObject obj in searcher.Get())
+                    _logger.LogTrace("Trying Win32_PerfRawData_Counters_ThermalZoneInformation");
+                    using var searcher = new System.Management.ManagementObjectSearcher("root\\CIMV2",
+                        "SELECT * FROM Win32_PerfRawData_Counters_ThermalZoneInformation");
+                    foreach (System.Management.ManagementObject obj in searcher.Get())
                     {
                         try
                         {
@@ -130,19 +155,52 @@ public class TemperatureCollector : IMetricCollector
                             var celsius = (Convert.ToDouble(temp) / 10.0) - 273.15;
                             if (celsius is > -50 and < 150)
                             {
-                                readings.Add(new TempReading
-                                {
-                                    Name = obj["Name"]?.ToString() ?? "Thermal Zone",
-                                    Temperature = Math.Round(celsius, 1),
-                                    Source = "PerfCounter"
-                                });
+                                var name = obj["Name"]?.ToString() ?? "Thermal Zone";
+                                readings.Add(new TempReading { Name = name, Temperature = Math.Round(celsius, 1), Source = "PerfCounter" });
+                                _logger.LogTrace("PerfCounter sensor: {Name} = {Temp}°C", name, celsius);
                             }
                         }
-                        catch (Exception ex) { _logger.LogDebug(ex, "Error reading perf counter thermal entry"); }
+                        catch (Exception ex) { _logger.LogTrace(ex, "Error reading perf counter thermal entry"); }
                     }
                 }
-                catch (Exception ex) { _logger.LogDebug(ex, "ThermalZoneInformation not available"); }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "ThermalZoneInformation query failed");
+                }
             }
+
+            // Method 3: Win32_TemperatureProbe (rarely populated but worth trying)
+            if (readings.Count == 0)
+            {
+                try
+                {
+                    _logger.LogTrace("Trying Win32_TemperatureProbe");
+                    using var searcher = new System.Management.ManagementObjectSearcher(
+                        "SELECT * FROM Win32_TemperatureProbe WHERE CurrentReading IS NOT NULL");
+                    foreach (System.Management.ManagementObject obj in searcher.Get())
+                    {
+                        try
+                        {
+                            var temp = obj["CurrentReading"];
+                            if (temp == null) continue;
+                            var celsius = Convert.ToDouble(temp) / 10.0;
+                            if (celsius is > -50 and < 150)
+                            {
+                                var name = obj["Name"]?.ToString() ?? "Temperature Probe";
+                                readings.Add(new TempReading { Name = name, Temperature = Math.Round(celsius, 1), Source = "TemperatureProbe" });
+                                _logger.LogTrace("TemperatureProbe sensor: {Name} = {Temp}°C", name, celsius);
+                            }
+                        }
+                        catch (Exception ex) { _logger.LogTrace(ex, "Error reading temperature probe"); }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Win32_TemperatureProbe query failed");
+                }
+            }
+
+            _logger.LogTrace("Windows temperature scan complete: {Count} sensors found", readings.Count);
         });
 
         return readings;
@@ -176,16 +234,12 @@ public class TemperatureCollector : IMetricCollector
                                 if (File.Exists(typeFile))
                                     name = File.ReadAllText(typeFile).Trim();
 
-                                readings.Add(new TempReading
-                                {
-                                    Name = name,
-                                    Temperature = Math.Round(celsius, 1),
-                                    Source = "sysfs"
-                                });
+                                readings.Add(new TempReading { Name = name, Temperature = Math.Round(celsius, 1), Source = "sysfs" });
+                                _logger.LogTrace("Linux sensor: {Name} = {Temp}°C", name, celsius);
                             }
                         }
                     }
-                    catch (Exception ex) { _logger.LogDebug(ex, "Error reading thermal zone {Zone}", zone); }
+                    catch (Exception ex) { _logger.LogTrace(ex, "Error reading thermal zone {Zone}", zone); }
                 }
             }
             catch (Exception ex) { _logger.LogDebug(ex, "Error enumerating Linux thermal zones"); }

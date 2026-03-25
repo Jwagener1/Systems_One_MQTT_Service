@@ -6,17 +6,24 @@ namespace Systems_One_MQTT_Service.Tests.Publishing;
 public class MqttTopicBuilderTests
 {
     [Fact]
-    public void Build_StandardMetric_StripsScopePrefix()
+    public void Build_OsMetric_StripsScopeAndFlattens()
     {
-        var result = MqttTopicBuilder.Build("base", "HOST", "OS", "os.version");
-        result.Should().Be("base/HOST/OS/version");
+        var result = MqttTopicBuilder.Build("systems-one", "IMOGEN", "OS", "os.version");
+        result.Should().Be("systems-one/IMOGEN/OS/version");
     }
 
     [Fact]
-    public void Build_NoScopePrefix_PreservesFullPath()
+    public void Build_CpuUsage_FlattensToFirstSegment()
     {
-        var result = MqttTopicBuilder.Build("base", "HOST", "OS", "cpu.usage");
-        result.Should().Be("base/HOST/OS/cpu/usage");
+        var result = MqttTopicBuilder.Build("systems-one", "IMOGEN", "OS", "cpu.usage");
+        result.Should().Be("systems-one/IMOGEN/OS/cpu");
+    }
+
+    [Fact]
+    public void Build_Memory_FlattensToFirstSegment()
+    {
+        var result = MqttTopicBuilder.Build("systems-one", "IMOGEN", "OS", "memory");
+        result.Should().Be("systems-one/IMOGEN/OS/memory");
     }
 
     [Fact]
@@ -34,16 +41,16 @@ public class MqttTopicBuilderTests
     }
 
     [Fact]
-    public void Build_MetricIdDotsToSlashes()
+    public void Build_AppRunning_StripsScopePrefix()
     {
-        var result = MqttTopicBuilder.Build("b", "H", "OS", "a.b.c");
-        result.Should().Be("b/H/OS/a/b/c");
+        var result = MqttTopicBuilder.Build("systems-one", "IMOGEN", "App", "app.running");
+        result.Should().Be("systems-one/IMOGEN/App/running");
     }
 
     [Fact]
-    public void Build_EmptyMetricId_DoesNotThrow()
+    public void Build_SingleSegmentId_NoStripping()
     {
-        var act = () => MqttTopicBuilder.Build("base", "HOST", "OS", "");
-        act.Should().NotThrow();
+        var result = MqttTopicBuilder.Build("base", "HOST", "OS", "temperature");
+        result.Should().Be("base/HOST/OS/temperature");
     }
 }
