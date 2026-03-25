@@ -9,17 +9,20 @@ namespace Systems_One_MQTT_Service.Collectors.OS;
 public class OsUptimeCollector : IMetricCollector
 {
     private readonly IClock _clock;
+    private readonly ILogger<OsUptimeCollector>? _logger;
 
     public string Name => "OS Uptime";
     public string Category => "OS";
 
-    public OsUptimeCollector(IClock clock)
+    public OsUptimeCollector(IClock clock, ILogger<OsUptimeCollector>? logger = null)
     {
         _clock = clock;
+        _logger = logger;
     }
 
     public Task<IEnumerable<Metric>> CollectAsync(CancellationToken cancellationToken = default)
     {
+        _logger?.LogTrace("OsUptimeCollector.CollectAsync started");
         var metrics = new List<Metric>();
 
         var uptimeMilliseconds = Environment.TickCount64;
@@ -41,6 +44,7 @@ public class OsUptimeCollector : IMetricCollector
             }
         });
 
+        _logger?.LogDebug("Uptime collected: {Days}d {Hours}h {Minutes}m", uptimeTimeSpan.Days, uptimeTimeSpan.Hours, uptimeTimeSpan.Minutes);
         return Task.FromResult<IEnumerable<Metric>>(metrics);
     }
 }

@@ -26,18 +26,23 @@ public class CpuUsageCollector : IMetricCollector, IDisposable
             if (OperatingSystem.IsWindows())
             {
                 _cpuCounter = new PerformanceCounter("Processor", "% Processor Time", "_Total");
-                // Initial call returns 0, so we call it once to initialize
                 _cpuCounter.NextValue();
+                _logger?.LogDebug("CPU performance counter initialized");
+            }
+            else
+            {
+                _logger?.LogDebug("Non-Windows platform: using process-level CPU fallback");
             }
         }
         catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "Failed to initialize CPU performance counter. CPU metrics will use Process-level data.");
+            _logger?.LogWarning(ex, "Failed to initialize CPU performance counter — falling back to process-level data");
         }
     }
 
     public async Task<IEnumerable<Metric>> CollectAsync(CancellationToken cancellationToken = default)
     {
+        _logger?.LogTrace("CpuUsageCollector.CollectAsync started");
         var metrics = new List<Metric>();
 
         try
@@ -47,10 +52,10 @@ public class CpuUsageCollector : IMetricCollector, IDisposable
             if (_cpuCounter != null && OperatingSystem.IsWindows())
             {
                 cpuUsage = _cpuCounter.NextValue();
+                _logger?.LogTrace("CPU usage from performance counter: {CpuUsage}%", cpuUsage);
             }
             else
             {
-                // Fallback to process CPU usage on non-Windows platforms
                 var process = Process.GetCurrentProcess();
                 var startTime = DateTime.UtcNow;
                 var startCpuUsage = process.TotalProcessorTime;
@@ -63,6 +68,7 @@ public class CpuUsageCollector : IMetricCollector, IDisposable
                 var cpuUsedMs = (endCpuUsage - startCpuUsage).TotalMilliseconds;
                 var totalMsPassed = (endTime - startTime).TotalMilliseconds;
                 cpuUsage = (cpuUsedMs / (Environment.ProcessorCount * totalMsPassed)) * 100;
+                _logger?.LogTrace("CPU usage from process fallback: {CpuUsage}%", cpuUsage);
             }
 
             metrics.Add(new Metric
@@ -78,6 +84,8 @@ public class CpuUsageCollector : IMetricCollector, IDisposable
                     { "processor_count", Environment.ProcessorCount }
                 }
             });
+
+            _logger?.LogDebug("CPU usage collected: {CpuUsage}%", Math.Round(cpuUsage, 2));
         }
         catch (Exception ex)
         {

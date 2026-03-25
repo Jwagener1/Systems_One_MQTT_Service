@@ -32,76 +32,81 @@ public class DatabaseCollector : IMetricCollector
             ConnectTimeout = _options.TimeoutSeconds
         };
         _connectionString = builder.ConnectionString;
+        _logger.LogDebug("DatabaseCollector initialized: Server={Server}, Database={Database}, Table={Table}, Timeout={Timeout}s",
+            _options.Server, _options.DatabaseName, _options.TableName, _options.TimeoutSeconds);
     }
 
     public async Task<IEnumerable<Metric>> CollectAsync(CancellationToken cancellationToken = default)
     {
-        using (_logger.BeginScope(new Dictionary<string, object> { ["Component"] = nameof(DatabaseCollector) }))
-        {
-            var metrics = new List<Metric>();
+        _logger.LogTrace("DatabaseCollector.CollectAsync started");
+        var metrics = new List<Metric>();
 
-            var statusMetric = new Metric
+        var statusMetric = new Metric
+        {
+            Id = "db.connection",
+            Name = "Database Connection Status",
+            Source = "DB",
+            Timestamp = _clock.UtcNow,
+            Value = false,
+            Tags = new Dictionary<string, object>
             {
-                Id = "db.connection",
-                Name = "Database Connection Status",
+                { "server", _options.Server ?? string.Empty },
+                { "database", _options.DatabaseName ?? string.Empty },
+                { "table", _options.TableName ?? string.Empty }
+            }
+        };
+
+        try
+        {
+            _logger.LogDebug("Opening SQL connection to {Server}/{Database}", _options.Server, _options.DatabaseName);
+            using var conn = new SqlConnection(_connectionString);
+            await conn.OpenAsync(cancellationToken);
+            statusMetric.Value = true;
+            _logger.LogDebug("SQL connection established");
+
+            var nowUtc = DateTime.UtcNow;
+            var endUtc = nowUtc.AddMinutes(-5);
+            var startUtc = endUtc.AddMinutes(-5);
+            var table = string.IsNullOrWhiteSpace(_options.TableName) ? "ItemLog" : _options.TableName!;
+            _logger.LogTrace("Querying {Table} for window {StartUtc} to {EndUtc}", table, startUtc, endUtc);
+
+            var summary = await ItemLogQuery.ExecuteWindowSummaryAsync(conn, table, startUtc, endUtc, cancellationToken);
+            
+            _logger.LogDebug("Query returned summary: TotalItems={Total}, NoRead={NoRead}, DataSent={DataSent}",
+                summary.GetValueOrDefault("Total_Items"), summary.GetValueOrDefault("No_Read"), summary.GetValueOrDefault("Data_Sent"));
+            
+            metrics.Add(new Metric
+            {
+                Id = "db.itemlog.summary",
+                Name = "ItemLog Summary (5-minute window)",
                 Source = "DB",
                 Timestamp = _clock.UtcNow,
-                Value = false,
+                Value = summary,
                 Tags = new Dictionary<string, object>
                 {
-                    { "server", _options.Server ?? string.Empty },
-                    { "database", _options.DatabaseName ?? string.Empty },
-                    { "table", _options.TableName ?? string.Empty }
+                    { "startUtc", startUtc },
+                    { "endUtc", endUtc }
                 }
-            };
-
-            try
-            {
-                _logger.LogInformation("Opening SQL connection to {Server}/{Database}", _options.Server, _options.DatabaseName);
-                using var conn = new SqlConnection(_connectionString);
-                await conn.OpenAsync(cancellationToken);
-                statusMetric.Value = true;
-                _logger.LogInformation("SQL connection open");
-
-                var nowUtc = DateTime.UtcNow;
-                var endUtc = nowUtc.AddMinutes(-5);
-                var startUtc = endUtc.AddMinutes(-5);
-                var table = string.IsNullOrWhiteSpace(_options.TableName) ? "ItemLog" : _options.TableName!;
-                _logger.LogDebug("Querying window {StartUtc} - {EndUtc} on table {Table}", startUtc, endUtc, table);
-
-                var summary = await ItemLogQuery.ExecuteWindowSummaryAsync(conn, table, startUtc, endUtc, cancellationToken);
-                metrics.Add(new Metric
-                {
-                    Id = "db.itemlog.summary",
-                    Name = "ItemLog Summary (5-minute window)",
-                    Source = "DB",
-                    Timestamp = _clock.UtcNow,
-                    Value = summary,
-                    Tags = new Dictionary<string, object>
-                    {
-                        { "startUtc", startUtc },
-                        { "endUtc", endUtc }
-                    }
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Database query error for server {Server} database {Database}", _options.Server, _options.DatabaseName);
-                metrics.Add(new Metric
-                {
-                    Id = "db.query.error",
-                    Name = "Database Query Error",
-                    Source = "DB",
-                    Timestamp = _clock.UtcNow,
-                    Value = ex.Message
-                });
-            }
-            finally
-            {
-                metrics.Add(statusMetric);
-            }
-
-            return metrics;
+            });
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Database query failed: {Server}/{Database}", _options.Server, _options.DatabaseName);
+            metrics.Add(new Metric
+            {
+                Id = "db.query.error",
+                Name = "Database Query Error",
+                Source = "DB",
+                Timestamp = _clock.UtcNow,
+                Value = ex.Message
+            });
+        }
+        finally
+        {
+            metrics.Add(statusMetric);
+        }
+
+        _logger.LogTrace("DatabaseCollector.CollectAsync finished: {MetricCount} metrics", metrics.Count);
+        return metrics;
     }
 }

@@ -36,89 +36,97 @@ public class AppCollector : IMetricCollector
             : opts.ExePath!;
 
         _processName = Path.GetFileNameWithoutExtension(_exePath);
+        _logger.LogDebug("AppCollector initialized: Process={ProcessName}, ExePath={ExePath}, SettingsDir={SettingsDir}",
+            _processName, _exePath, _settingsDir);
     }
 
     public Task<IEnumerable<Metric>> CollectAsync(CancellationToken cancellationToken = default)
     {
-        using (_logger.BeginScope(new Dictionary<string, object> { ["Component"] = nameof(AppCollector) }))
+        _logger.LogTrace("AppCollector.CollectAsync started");
+        var metrics = new List<Metric>();
+        var now = _clock.UtcNow;
+
+        var (isRunning, processCount, pathMatched) = GetProcessState(_processName, _exePath, _logger);
+        _logger.LogTrace("Process state: Running={IsRunning}, Count={ProcessCount}, PathMatched={PathMatched}",
+            isRunning, processCount, pathMatched);
+
+        lock (_stateLock)
         {
-            var metrics = new List<Metric>();
-            var now = _clock.UtcNow;
-
-            var (isRunning, processCount, pathMatched) = GetProcessState(_processName, _exePath, _logger);
-
-            lock (_stateLock)
+            if (_lastRunning != isRunning)
             {
-                if (_lastRunning != isRunning)
+                _logger.LogInformation("App running state changed: {Old} -> {New}", _lastRunning, isRunning);
+                _lastRunning = isRunning;
+                metrics.Add(new Metric
                 {
-                    _logger.LogInformation("App running state changed: {Old} -> {New}", _lastRunning, isRunning);
-                    _lastRunning = isRunning;
+                    Id = "app.running",
+                    Name = "App Running",
+                    Value = isRunning,
+                    Source = "App",
+                    Timestamp = now,
+                    Tags = new Dictionary<string, object>
+                    {
+                        { "process_name", _processName },
+                        { "exe_path", _exePath },
+                        { "process_count", processCount },
+                        { "path_match", pathMatched }
+                    }
+                });
+            }
+        }
+
+        try
+        {
+            if (Directory.Exists(_settingsDir))
+            {
+                _logger.LogTrace("Scanning settings directory: {Dir}", _settingsDir);
+                foreach (var path in Directory.EnumerateFiles(_settingsDir, "*.json", SearchOption.TopDirectoryOnly))
+                {
+                    var key = Path.GetFileNameWithoutExtension(path);
+                    _logger.LogTrace("Checking settings file: {Key} at {Path}", key, path);
+                    using var fs = File.OpenRead(path);
+                    using var sha = System.Security.Cryptography.SHA256.Create();
+                    var hashBytes = sha.ComputeHash(fs);
+                    var hash = Convert.ToHexString(hashBytes);
+
+                    var previousHash = _lastSettingsHashes.GetOrAdd(key, _ => string.Empty);
+                    if (string.Equals(hash, previousHash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.LogTrace("Settings file unchanged: {Key} (hash={Hash})", key, hash[..8]);
+                        continue;
+                    }
+
+                    _lastSettingsHashes[key] = hash;
+
+                    fs.Position = 0;
+                    var doc = JsonDocument.Parse(fs);
                     metrics.Add(new Metric
                     {
-                        Id = "app.running",
-                        Name = "App Running",
-                        Value = isRunning,
+                        Id = $"app.settings.{key}",
+                        Name = $"{key} settings",
+                        Value = doc.RootElement.Clone(),
                         Source = "App",
                         Timestamp = now,
                         Tags = new Dictionary<string, object>
                         {
-                            { "process_name", _processName },
-                            { "exe_path", _exePath },
-                            { "process_count", processCount },
-                            { "path_match", pathMatched }
+                            { "path", path },
+                            { "hash", hash }
                         }
                     });
+                    _logger.LogDebug("Settings file changed: {Key} (hash={Hash})", key, hash[..8]);
                 }
             }
-
-            try
+            else
             {
-                if (Directory.Exists(_settingsDir))
-                {
-                    foreach (var path in Directory.EnumerateFiles(_settingsDir, "*.json", SearchOption.TopDirectoryOnly))
-                    {
-                        var key = Path.GetFileNameWithoutExtension(path);
-                        using var fs = File.OpenRead(path);
-                        using var sha = System.Security.Cryptography.SHA256.Create();
-                        var hashBytes = sha.ComputeHash(fs);
-                        var hash = Convert.ToHexString(hashBytes);
-
-                        var previousHash = _lastSettingsHashes.GetOrAdd(key, _ => string.Empty);
-                        if (string.Equals(hash, previousHash, StringComparison.OrdinalIgnoreCase))
-                            continue;
-
-                        _lastSettingsHashes[key] = hash;
-
-                        fs.Position = 0;
-                        var doc = JsonDocument.Parse(fs);
-                        metrics.Add(new Metric
-                        {
-                            Id = $"app.settings.{key}",
-                            Name = $"{key} settings",
-                            Value = doc.RootElement.Clone(),
-                            Source = "App",
-                            Timestamp = now,
-                            Tags = new Dictionary<string, object>
-                            {
-                                { "path", path },
-                                { "hash", hash }
-                            }
-                        });
-                        _logger.LogInformation("Settings changed: {Key}", key);
-                    }
-                }
-                else
-                {
-                    _logger.LogWarning("Settings directory missing: {Dir}", _settingsDir);
-                }
+                _logger.LogWarning("Settings directory missing: {Dir}", _settingsDir);
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error scanning settings directory {Dir}", _settingsDir);
-            }
-
-            return Task.FromResult<IEnumerable<Metric>>(metrics);
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error scanning settings directory {Dir}", _settingsDir);
+        }
+
+        _logger.LogTrace("AppCollector.CollectAsync finished: {MetricCount} metrics", metrics.Count);
+        return Task.FromResult<IEnumerable<Metric>>(metrics);
     }
 
     private static (bool isRunning, int processCount, bool pathMatched) GetProcessState(string processName, string exePath, ILogger logger)
@@ -128,7 +136,10 @@ public class AppCollector : IMetricCollector
             var processes = Process.GetProcessesByName(processName);
             var count = processes.Length;
             if (count == 0)
+            {
+                logger.LogTrace("No processes found for {ProcessName}", processName);
                 return (false, 0, false);
+            }
 
             var matched = false;
             foreach (var p in processes)
@@ -138,6 +149,7 @@ public class AppCollector : IMetricCollector
                     var path = p.MainModule?.FileName;
                     if (!string.IsNullOrEmpty(path))
                     {
+                        logger.LogTrace("Process PID {Pid}: path={Path}", p.Id, path);
                         if (string.Equals(path, exePath, StringComparison.OrdinalIgnoreCase))
                         {
                             matched = true;

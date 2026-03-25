@@ -32,11 +32,17 @@ public class DiskFreeCollector : IMetricCollector
             _driveLetters = new HashSet<string>(
                 paths.Select(NormalizeDriveLetter),
                 StringComparer.OrdinalIgnoreCase);
+            _logger?.LogDebug("DiskFreeCollector initialized: monitoring drives {Drives}", string.Join(", ", _driveLetters));
+        }
+        else
+        {
+            _logger?.LogDebug("DiskFreeCollector initialized: monitoring all fixed drives");
         }
     }
 
     public Task<IEnumerable<Metric>> CollectAsync(CancellationToken cancellationToken = default)
     {
+        _logger?.LogTrace("DiskFreeCollector.CollectAsync started");
         var metrics = new List<Metric>();
 
         try
@@ -71,6 +77,9 @@ public class DiskFreeCollector : IMetricCollector
                         driveType = drive.DriveType.ToString(),
                         format = drive.DriveFormat
                     });
+
+                    _logger?.LogTrace("Drive {Drive}: {UsedGB}GB / {TotalGB}GB ({Usage}%)",
+                        driveName, Math.Round(usedSpaceGB, 1), Math.Round(totalSpaceGB, 1), Math.Round(usagePercent, 1));
                 }
                 catch (Exception ex)
                 {
@@ -91,6 +100,8 @@ public class DiskFreeCollector : IMetricCollector
                     { "filter", "internal_only" }
                 }
             });
+
+            _logger?.LogDebug("Disk metrics collected for {DriveCount} drives", list.Count);
         }
         catch (Exception ex)
         {

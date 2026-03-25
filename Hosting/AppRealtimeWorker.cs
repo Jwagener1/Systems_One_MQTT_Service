@@ -18,43 +18,44 @@ namespace Systems_One_MQTT_Service.Hosting
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            using (_logger.BeginScope(new Dictionary<string, object> { ["Component"] = nameof(AppRealtimeWorker) }))
+            var appCollectors = _collectors.Where(c => string.Equals(c.Category, "App", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (appCollectors.Count == 0)
             {
-                var appCollectors = _collectors.Where(c => string.Equals(c.Category, "App", StringComparison.OrdinalIgnoreCase)).ToList();
-                if (appCollectors.Count == 0)
-                {
-                    _logger.LogWarning("No App collectors registered; realtime monitoring disabled");
-                    return;
-                }
+                _logger.LogWarning("No App collectors registered — realtime monitoring disabled");
+                return;
+            }
 
-                _logger.LogInformation("App realtime loop running with interval {IntervalMs}ms", IntervalMs);
-                while (!stoppingToken.IsCancellationRequested)
+            _logger.LogInformation("AppRealtimeWorker started — {Count} app collectors, {IntervalMs}ms interval", appCollectors.Count, IntervalMs);
+
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try
                 {
-                    try
+                    foreach (var collector in appCollectors)
                     {
-                        foreach (var collector in appCollectors)
+                        _logger.LogTrace("Realtime poll: {CollectorName}", collector.Name);
+                        var metrics = await collector.CollectAsync(stoppingToken);
+                        var list = metrics.ToList();
+                        if (list.Count > 0)
                         {
-                            var metrics = await collector.CollectAsync(stoppingToken);
-                            var list = metrics.ToList();
-                            if (list.Count > 0)
-                            {
-                                await _publisher.PublishAsync(list, stoppingToken);
-                            }
+                            _logger.LogDebug("Realtime: {Count} metrics from {CollectorName}", list.Count, collector.Name);
+                            await _publisher.PublishAsync(list, stoppingToken);
                         }
                     }
-                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                    {
-                        break;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error in app realtime loop");
-                    }
-
-                    await Task.Delay(IntervalMs, stoppingToken);
                 }
-                _logger.LogInformation("App realtime loop cancelled");
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error in app realtime loop");
+                }
+
+                await Task.Delay(IntervalMs, stoppingToken);
             }
+
+            _logger.LogInformation("AppRealtimeWorker stopped");
         }
     }
 }

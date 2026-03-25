@@ -31,8 +31,7 @@ public class MonitoringWorker : BackgroundService
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation(
-            "MonitoringWorker starting. Collectors={CollectorCount}, Interval={IntervalMin}min",
+        _logger.LogInformation("MonitoringWorker starting — {CollectorCount} collectors, {IntervalMin}min interval",
             _collectors.Count(), _interval.TotalMinutes);
 
         try
@@ -41,7 +40,7 @@ public class MonitoringWorker : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to connect publisher on startup. Will retry on first collection cycle.");
+            _logger.LogError(ex, "Failed to connect publisher on startup — will retry on first collection cycle");
         }
 
         await base.StartAsync(cancellationToken);
@@ -50,14 +49,12 @@ public class MonitoringWorker : BackgroundService
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("MonitoringWorker stopping");
-
-        // First let base stop the execution loop
         await base.StopAsync(cancellationToken);
 
-        // Then disconnect the publisher (after workers have stopped)
         try
         {
             await _publisher.DisconnectAsync(cancellationToken);
+            _logger.LogDebug("Publisher disconnected cleanly");
         }
         catch (Exception ex)
         {
@@ -70,12 +67,12 @@ public class MonitoringWorker : BackgroundService
         return _scheduler.ScheduleAsync(async ct =>
         {
             var cycleStart = _clock.UtcNow;
-            _logger.LogInformation("Starting collection cycle");
+            _logger.LogDebug("Collection cycle starting");
 
             foreach (var collector in _collectors)
             {
                 var start = _clock.UtcNow;
-                _logger.LogInformation("Collecting from {CollectorName} [{Category}]", collector.Name, collector.Category);
+                _logger.LogTrace("Running collector: {CollectorName} [{Category}]", collector.Name, collector.Category);
 
                 try
                 {
@@ -83,25 +80,24 @@ public class MonitoringWorker : BackgroundService
                     var list = metrics.ToList();
                     var durationMs = (int)(_clock.UtcNow - start).TotalMilliseconds;
 
-                    _logger.LogInformation(
-                        "Collected {Count} metrics from {CollectorName} in {DurationMs}ms",
-                        list.Count, collector.Name, durationMs);
+                    _logger.LogDebug("{CollectorName}: {Count} metrics in {DurationMs}ms",
+                        collector.Name, list.Count, durationMs);
 
                     if (list.Count > 0)
                         await _publisher.PublishAsync(list, ct);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
-                    throw; // Let cancellation propagate
+                    throw;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error collecting/publishing from {CollectorName}", collector.Name);
+                    _logger.LogError(ex, "Error in collector {CollectorName}", collector.Name);
                 }
             }
 
             var cycleDurationMs = (int)(_clock.UtcNow - cycleStart).TotalMilliseconds;
-            _logger.LogInformation("Collection cycle complete in {CycleDurationMs}ms", cycleDurationMs);
+            _logger.LogDebug("Collection cycle complete: {CycleDurationMs}ms", cycleDurationMs);
         }, _interval, stoppingToken);
     }
 }

@@ -26,6 +26,11 @@ public class MemoryUsageCollector : IMetricCollector, IDisposable
             if (OperatingSystem.IsWindows())
             {
                 _availableMemoryCounter = new PerformanceCounter("Memory", "Available MBytes");
+                _logger?.LogDebug("Memory performance counter initialized");
+            }
+            else
+            {
+                _logger?.LogDebug("Non-Windows platform: using GC memory info fallback");
             }
         }
         catch (Exception ex)
@@ -36,6 +41,7 @@ public class MemoryUsageCollector : IMetricCollector, IDisposable
 
     public Task<IEnumerable<Metric>> CollectAsync(CancellationToken cancellationToken = default)
     {
+        _logger?.LogTrace("MemoryUsageCollector.CollectAsync started");
         var metrics = new List<Metric>();
 
         try
@@ -58,45 +64,16 @@ public class MemoryUsageCollector : IMetricCollector, IDisposable
             var memoryUsagePercent = (usedMemoryMB / totalMemoryMB) * 100;
             var now = _clock.UtcNow;
 
-            metrics.Add(new Metric
-            {
-                Id = "memory.total",
-                Name = "Total Memory",
-                Value = Math.Round(totalMemoryMB, 2),
-                Unit = "MB",
-                Source = "OS",
-                Timestamp = now
-            });
+            _logger?.LogTrace("Memory raw: Total={TotalMB}MB, Available={AvailMB}MB, Used={UsedMB}MB",
+                Math.Round(totalMemoryMB), Math.Round(availableMemoryMB), Math.Round(usedMemoryMB));
 
-            metrics.Add(new Metric
-            {
-                Id = "memory.available",
-                Name = "Available Memory",
-                Value = Math.Round(availableMemoryMB, 2),
-                Unit = "MB",
-                Source = "OS",
-                Timestamp = now
-            });
+            metrics.Add(new Metric { Id = "memory.total", Name = "Total Memory", Value = Math.Round(totalMemoryMB, 2), Unit = "MB", Source = "OS", Timestamp = now });
+            metrics.Add(new Metric { Id = "memory.available", Name = "Available Memory", Value = Math.Round(availableMemoryMB, 2), Unit = "MB", Source = "OS", Timestamp = now });
+            metrics.Add(new Metric { Id = "memory.used", Name = "Used Memory", Value = Math.Round(usedMemoryMB, 2), Unit = "MB", Source = "OS", Timestamp = now });
+            metrics.Add(new Metric { Id = "memory.usage", Name = "Memory Usage", Value = Math.Round(memoryUsagePercent, 2), Unit = "percent", Source = "OS", Timestamp = now });
 
-            metrics.Add(new Metric
-            {
-                Id = "memory.used",
-                Name = "Used Memory",
-                Value = Math.Round(usedMemoryMB, 2),
-                Unit = "MB",
-                Source = "OS",
-                Timestamp = now
-            });
-
-            metrics.Add(new Metric
-            {
-                Id = "memory.usage",
-                Name = "Memory Usage",
-                Value = Math.Round(memoryUsagePercent, 2),
-                Unit = "percent",
-                Source = "OS",
-                Timestamp = now
-            });
+            _logger?.LogDebug("Memory collected: {UsedMB}MB / {TotalMB}MB ({UsagePercent}%)",
+                Math.Round(usedMemoryMB), Math.Round(totalMemoryMB), Math.Round(memoryUsagePercent, 1));
         }
         catch (Exception ex)
         {

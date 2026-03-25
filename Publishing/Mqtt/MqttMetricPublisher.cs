@@ -34,114 +34,117 @@ public class MqttMetricPublisher : IMetricPublisher
 
     public async Task ConnectAsync(CancellationToken cancellationToken = default)
     {
-        using (_logger.BeginScope(new Dictionary<string, object> { ["Component"] = nameof(MqttMetricPublisher) }))
+        var factory = new MqttFactory();
+        _client = factory.CreateMqttClient();
+
+        _client.DisconnectedAsync += args =>
         {
-            var factory = new MqttFactory();
-            _client = factory.CreateMqttClient();
+            _logger.LogWarning("MQTT connection lost: {Reason}", args.Reason);
+            return Task.CompletedTask;
+        };
 
-            _client.DisconnectedAsync += args =>
-            {
-                _logger.LogWarning("MQTT connection lost: {Reason}", args.Reason);
-                return Task.CompletedTask;
-            };
+        _client.ConnectedAsync += args =>
+        {
+            _logger.LogDebug("MQTT connected event fired");
+            return Task.CompletedTask;
+        };
 
-            var statusTopic = BuildStatusTopic();
+        var statusTopic = BuildStatusTopic();
 
-            var builder = new MqttClientOptionsBuilder()
-                .WithTcpServer(_settings.BrokerUrl?.Replace("mqtt://", string.Empty) ?? "localhost", _settings.BrokerPort)
-                .WithClientId(_settings.ClientId ?? Environment.MachineName)
-                .WithWillTopic(statusTopic)
-                .WithWillPayload("offline")
-                .WithKeepAlivePeriod(TimeSpan.FromSeconds(30));
+        var builder = new MqttClientOptionsBuilder()
+            .WithTcpServer(_settings.BrokerUrl?.Replace("mqtt://", string.Empty) ?? "localhost", _settings.BrokerPort)
+            .WithClientId(_settings.ClientId ?? Environment.MachineName)
+            .WithWillTopic(statusTopic)
+            .WithWillPayload("offline")
+            .WithKeepAlivePeriod(TimeSpan.FromSeconds(30));
 
-            if (!string.IsNullOrEmpty(_settings.Username))
-                builder = builder.WithCredentials(_settings.Username, _settings.Password);
+        if (!string.IsNullOrEmpty(_settings.Username))
+        {
+            builder = builder.WithCredentials(_settings.Username, _settings.Password);
+            _logger.LogDebug("MQTT using authenticated connection (user={Username})", _settings.Username);
+        }
 
-            _clientOptions = builder.Build();
+        _clientOptions = builder.Build();
 
-            await ConnectWithRetryAsync(5, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30), cancellationToken);
+        _logger.LogInformation("Connecting to MQTT broker {Broker}:{Port} (ClientId={ClientId})",
+            _settings.BrokerUrl, _settings.BrokerPort, _settings.ClientId ?? Environment.MachineName);
 
-            // Publish online status
-            if (_client.IsConnected)
-            {
-                var onlineMessage = new MqttApplicationMessageBuilder()
-                    .WithTopic(statusTopic)
-                    .WithPayload("online")
-                    .WithRetainFlag(true)
-                    .Build();
-                await _client.PublishAsync(onlineMessage, cancellationToken);
-            }
+        await ConnectWithRetryAsync(5, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30), cancellationToken);
+
+        if (_client.IsConnected)
+        {
+            var onlineMessage = new MqttApplicationMessageBuilder()
+                .WithTopic(statusTopic)
+                .WithPayload("online")
+                .WithRetainFlag(true)
+                .Build();
+            await _client.PublishAsync(onlineMessage, cancellationToken);
+            _logger.LogDebug("Published online status to {Topic}", statusTopic);
         }
     }
 
     public async Task PublishAsync(IEnumerable<Metric> metrics, CancellationToken cancellationToken = default)
     {
-        using (_logger.BeginScope(new Dictionary<string, object> { ["Component"] = nameof(MqttMetricPublisher) }))
+        if (_client == null || !_client.IsConnected)
         {
-            // If disconnected, try to reconnect
-            if (_client == null || !_client.IsConnected)
+            _logger.LogDebug("MQTT disconnected — attempting reconnect before publish");
+            var reconnected = await TryReconnectAsync(cancellationToken);
+            if (!reconnected)
             {
-                _logger.LogWarning("MQTT client disconnected. Attempting reconnect...");
-                var reconnected = await TryReconnectAsync(cancellationToken);
-                if (!reconnected)
-                {
-                    // Buffer metrics for later
-                    BufferMetrics(metrics);
-                    return;
-                }
+                BufferMetrics(metrics);
+                return;
             }
-
-            // Drain buffer first
-            await DrainBufferAsync(cancellationToken);
-
-            // Publish current metrics
-            var machine = Environment.MachineName;
-            var count = 0;
-            foreach (var metric in metrics)
-            {
-                try
-                {
-                    await PublishSingleMetricAsync(machine, metric, cancellationToken);
-                    count++;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to publish metric {MetricId}", metric.Id);
-                    _buffer.Enqueue(metric);
-                    TrimBuffer();
-                }
-            }
-
-            _logger.LogInformation("Published {Count} metrics via MQTT", count);
         }
+
+        await DrainBufferAsync(cancellationToken);
+
+        var machine = Environment.MachineName;
+        var count = 0;
+        foreach (var metric in metrics)
+        {
+            try
+            {
+                await PublishSingleMetricAsync(machine, metric, cancellationToken);
+                count++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to publish metric {MetricId} — buffering", metric.Id);
+                _buffer.Enqueue(metric);
+                TrimBuffer();
+            }
+        }
+
+        _logger.LogTrace("Published {Count} metrics", count);
     }
 
     public async Task DisconnectAsync(CancellationToken cancellationToken = default)
     {
-        using (_logger.BeginScope(new Dictionary<string, object> { ["Component"] = nameof(MqttMetricPublisher) }))
+        if (_client is { IsConnected: true })
         {
-            if (_client is { IsConnected: true })
+            _logger.LogDebug("Disconnecting from MQTT broker");
+            try
             {
-                _logger.LogInformation("Disconnecting from MQTT broker");
-                try
-                {
-                    var offlineMessage = new MqttApplicationMessageBuilder()
-                        .WithTopic(BuildStatusTopic())
-                        .WithPayload("offline")
-                        .WithRetainFlag(true)
-                        .Build();
-                    await _client.PublishAsync(offlineMessage, cancellationToken);
-                    await _client.DisconnectAsync();
-                    _logger.LogInformation("Disconnected from MQTT broker");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Error during MQTT disconnect");
-                }
+                var offlineMessage = new MqttApplicationMessageBuilder()
+                    .WithTopic(BuildStatusTopic())
+                    .WithPayload("offline")
+                    .WithRetainFlag(true)
+                    .Build();
+                await _client.PublishAsync(offlineMessage, cancellationToken);
+                await _client.DisconnectAsync();
+                _logger.LogInformation("Disconnected from MQTT broker");
             }
-
-            _reconnectLock.Dispose();
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error during MQTT disconnect");
+            }
         }
+        else
+        {
+            _logger.LogTrace("Disconnect skipped — client not connected");
+        }
+
+        _reconnectLock.Dispose();
     }
 
     private async Task ConnectWithRetryAsync(int maxAttempts, TimeSpan initialDelay, TimeSpan maxDelay, CancellationToken cancellationToken)
@@ -150,8 +153,6 @@ public class MqttMetricPublisher : IMetricPublisher
         var delay = initialDelay;
         Exception? lastError = null;
 
-        _logger.LogInformation("Connecting to MQTT broker {Broker}:{Port}", _settings.BrokerUrl, _settings.BrokerPort);
-
         while (attempt < maxAttempts && (_client?.IsConnected != true))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -159,27 +160,28 @@ public class MqttMetricPublisher : IMetricPublisher
 
             try
             {
+                _logger.LogDebug("MQTT connect attempt {Attempt}/{MaxAttempts}", attempt, maxAttempts);
                 await _client!.ConnectAsync(_clientOptions, cancellationToken);
                 if (_client.IsConnected)
                 {
-                    _logger.LogInformation("Connected to MQTT broker on attempt {Attempt}", attempt);
+                    _logger.LogInformation("MQTT connected on attempt {Attempt}", attempt);
                     return;
                 }
             }
             catch (SocketException ex)
             {
                 lastError = ex;
-                _logger.LogWarning(ex, "Socket error on MQTT connect attempt {Attempt}", attempt);
+                _logger.LogDebug(ex, "Socket error on MQTT connect attempt {Attempt}", attempt);
             }
             catch (MqttCommunicationException ex)
             {
                 lastError = ex;
-                _logger.LogWarning(ex, "MQTT communication error on attempt {Attempt}", attempt);
+                _logger.LogDebug(ex, "MQTT communication error on attempt {Attempt}", attempt);
             }
             catch (Exception ex)
             {
                 lastError = ex;
-                _logger.LogError(ex, "Unexpected error on MQTT connect attempt {Attempt}", attempt);
+                _logger.LogWarning(ex, "Unexpected error on MQTT connect attempt {Attempt}", attempt);
             }
 
             if (attempt >= maxAttempts)
@@ -189,6 +191,7 @@ public class MqttMetricPublisher : IMetricPublisher
             var backoff = delay + jitter;
             if (backoff > maxDelay) backoff = maxDelay;
 
+            _logger.LogTrace("MQTT retry backoff: {BackoffMs}ms", (int)backoff.TotalMilliseconds);
             await Task.Delay(backoff, cancellationToken);
             delay = TimeSpan.FromMilliseconds(Math.Min(delay.TotalMilliseconds * 2, maxDelay.TotalMilliseconds));
         }
@@ -201,7 +204,7 @@ public class MqttMetricPublisher : IMetricPublisher
     {
         if (!await _reconnectLock.WaitAsync(0, cancellationToken))
         {
-            // Another reconnect in progress — just buffer
+            _logger.LogTrace("Reconnect already in progress — skipping");
             return _client?.IsConnected == true;
         }
 
@@ -215,6 +218,7 @@ public class MqttMetricPublisher : IMetricPublisher
 
             try
             {
+                _logger.LogDebug("Attempting MQTT reconnect");
                 await ConnectWithRetryAsync(3, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(10), cancellationToken);
 
                 if (_client.IsConnected)
@@ -263,7 +267,7 @@ public class MqttMetricPublisher : IMetricPublisher
             .Build();
 
         await _client!.PublishAsync(message, cancellationToken);
-        _logger.LogDebug("Published {MetricId} to {Topic}", metric.Id, topic);
+        _logger.LogTrace("Published {MetricId} → {Topic} ({PayloadBytes} bytes)", metric.Id, topic, Encoding.UTF8.GetByteCount(payload));
     }
 
     private async Task DrainBufferAsync(CancellationToken cancellationToken)
@@ -280,23 +284,22 @@ public class MqttMetricPublisher : IMetricPublisher
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to publish buffered metric {MetricId}", buffered.Id);
-                break; // Stop draining if publish fails
+                _logger.LogDebug(ex, "Failed to drain buffered metric {MetricId} — stopping drain", buffered.Id);
+                break;
             }
         }
 
         if (drained > 0)
-            _logger.LogInformation("Drained {Count} buffered metrics", drained);
+            _logger.LogDebug("Drained {Count} buffered metrics", drained);
     }
 
     private void BufferMetrics(IEnumerable<Metric> metrics)
     {
         foreach (var metric in metrics)
-        {
             _buffer.Enqueue(metric);
-        }
+
         TrimBuffer();
-        _logger.LogWarning("Buffered metrics. Queue size: {Size}", _buffer.Count);
+        _logger.LogWarning("Metrics buffered (queue={Size}) — MQTT offline", _buffer.Count);
     }
 
     private void TrimBuffer()
