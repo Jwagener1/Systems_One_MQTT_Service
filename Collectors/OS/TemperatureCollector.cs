@@ -4,8 +4,12 @@ using Systems_One_MQTT_Service.Metrics;
 namespace Systems_One_MQTT_Service.Collectors.OS;
 
 /// <summary>
-/// Collects system temperature from Windows thermal zone performance counters.
-/// No admin privileges required.
+/// Collects CPU package temperature.
+/// 
+/// Priority:
+///   1. LibreHardwareMonitor / OpenHardwareMonitor WMI (accurate CPU package temp)
+///   2. Win32_PerfFormattedData_Counters_ThermalZoneInformation (ACPI zones, no admin)
+///   3. Linux sysfs thermal zones
 /// </summary>
 public class TemperatureCollector : IMetricCollector
 {
@@ -29,14 +33,20 @@ public class TemperatureCollector : IMetricCollector
         try
         {
             double? tempCelsius = null;
+            string source = "unknown";
 
             if (OperatingSystem.IsWindows())
             {
-                tempCelsius = await GetWindowsTemperatureAsync();
+                // Try LibreHardwareMonitor/OpenHardwareMonitor first — gives actual CPU package temp
+                (tempCelsius, source) = await GetHardwareMonitorTempAsync();
+
+                // Fallback to ACPI thermal zones (less accurate, reads motherboard zones)
+                if (!tempCelsius.HasValue)
+                    (tempCelsius, source) = await GetThermalZoneTempAsync();
             }
             else if (OperatingSystem.IsLinux())
             {
-                tempCelsius = await GetLinuxTemperatureAsync();
+                (tempCelsius, source) = await GetLinuxTempAsync();
             }
 
             if (tempCelsius.HasValue)
@@ -53,17 +63,13 @@ public class TemperatureCollector : IMetricCollector
                 {
                     Id = "temperature",
                     Name = "System Temperature",
-                    Value = new
-                    {
-                        celsius = tempCelsius.Value,
-                        status
-                    },
+                    Value = new { celsius = tempCelsius.Value, status, source },
                     Unit = "°C",
                     Source = "OS",
                     Timestamp = _clock.UtcNow
                 });
 
-                _logger.LogDebug("Temperature: {Temp}°C ({Status})", tempCelsius.Value, status);
+                _logger.LogDebug("Temperature: {Temp}°C ({Status}) via {Source}", tempCelsius.Value, status, source);
             }
             else
             {
@@ -71,12 +77,11 @@ public class TemperatureCollector : IMetricCollector
                 {
                     Id = "temperature",
                     Name = "System Temperature",
-                    Value = new { celsius = (double?)null, status = "unavailable" },
+                    Value = new { celsius = (double?)null, status = "unavailable", source = "none" },
                     Unit = "°C",
                     Source = "OS",
                     Timestamp = _clock.UtcNow
                 });
-
                 _logger.LogDebug("Temperature: unavailable");
             }
         }
@@ -88,7 +93,85 @@ public class TemperatureCollector : IMetricCollector
         return metrics;
     }
 
-    private async Task<double?> GetWindowsTemperatureAsync()
+    /// <summary>
+    /// Reads CPU package temperature from LibreHardwareMonitor or OpenHardwareMonitor.
+    /// These tools expose accurate per-sensor data via WMI when running.
+    /// </summary>
+    private async Task<(double? temp, string source)> GetHardwareMonitorTempAsync()
+    {
+        return await Task.Run(() =>
+        {
+            // Try both namespaces — LibreHardwareMonitor uses root\LibreHardwareMonitor,
+            // OpenHardwareMonitor uses root\OpenHardwareMonitor
+            var namespaces = new[] { "root\\LibreHardwareMonitor", "root\\OpenHardwareMonitor" };
+
+            foreach (var ns in namespaces)
+            {
+                try
+                {
+                    _logger.LogTrace("Trying {Namespace} for CPU temperature", ns);
+
+                    using var searcher = new System.Management.ManagementObjectSearcher(ns,
+                        "SELECT Name, Value FROM Sensor WHERE SensorType='Temperature'");
+
+                    double? cpuPackageTemp = null;
+                    double? bestTemp = null;
+
+                    foreach (System.Management.ManagementObject obj in searcher.Get())
+                    {
+                        var name = obj["Name"]?.ToString() ?? "";
+                        var value = obj["Value"];
+                        if (value == null) continue;
+
+                        var celsius = Convert.ToDouble(value);
+                        if (celsius is <= -50 or >= 150) continue;
+
+                        _logger.LogTrace("{Namespace}: {Name} = {Temp}°C", ns, name, celsius);
+
+                        // Prefer "CPU Package" or "Core (Tctl/Tdie)" — the overall CPU temp
+                        if (name.Contains("Package", StringComparison.OrdinalIgnoreCase) ||
+                            name.Contains("Tctl", StringComparison.OrdinalIgnoreCase) ||
+                            name.Contains("Tdie", StringComparison.OrdinalIgnoreCase))
+                        {
+                            cpuPackageTemp = Math.Round(celsius, 1);
+                        }
+
+                        // Track highest CPU core temp as fallback
+                        if (name.Contains("CPU", StringComparison.OrdinalIgnoreCase) ||
+                            name.Contains("Core", StringComparison.OrdinalIgnoreCase))
+                        {
+                            bestTemp = Math.Max(bestTemp ?? 0, Math.Round(celsius, 1));
+                        }
+                    }
+
+                    var result = cpuPackageTemp ?? bestTemp;
+                    if (result.HasValue)
+                    {
+                        var sourceName = ns.Contains("Libre") ? "LibreHardwareMonitor" : "OpenHardwareMonitor";
+                        _logger.LogDebug("CPU temp from {Source}: {Temp}°C", sourceName, result.Value);
+                        return (result, sourceName);
+                    }
+                }
+                catch (System.Management.ManagementException ex)
+                {
+                    _logger.LogTrace("{Namespace} not available: {Message}", ns, ex.Message);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogTrace(ex, "{Namespace} query failed", ns);
+                }
+            }
+
+            _logger.LogDebug("No hardware monitor WMI provider found");
+            return ((double?)null, "none");
+        });
+    }
+
+    /// <summary>
+    /// Reads ACPI thermal zone temperature (no admin required).
+    /// Note: these are typically motherboard/chipset temps, not CPU package.
+    /// </summary>
+    private async Task<(double? temp, string source)> GetThermalZoneTempAsync()
     {
         return await Task.Run(() =>
         {
@@ -99,57 +182,43 @@ public class TemperatureCollector : IMetricCollector
                 using var searcher = new System.Management.ManagementObjectSearcher("root\\CIMV2",
                     "SELECT Temperature FROM Win32_PerfFormattedData_Counters_ThermalZoneInformation");
 
-                var temps = new List<double>();
+                double? maxTemp = null;
 
                 foreach (System.Management.ManagementObject obj in searcher.Get())
                 {
-                    try
-                    {
-                        var raw = obj["Temperature"];
-                        if (raw == null) continue;
+                    var raw = obj["Temperature"];
+                    if (raw == null) continue;
 
-                        // Value is in Kelvin
-                        var kelvin = Convert.ToDouble(raw);
-                        var celsius = kelvin - 273.15;
+                    var celsius = Convert.ToDouble(raw) - 273.15;
+                    _logger.LogTrace("ACPI zone: {Temp}°C", Math.Round(celsius, 1));
 
-                        _logger.LogTrace("Thermal zone: raw={Raw}K → {Celsius}°C", kelvin, Math.Round(celsius, 1));
-
-                        if (celsius is > -50 and < 150)
-                            temps.Add(Math.Round(celsius, 1));
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogTrace(ex, "Error reading thermal zone entry");
-                    }
+                    if (celsius is > -50 and < 150)
+                        maxTemp = Math.Max(maxTemp ?? 0, Math.Round(celsius, 1));
                 }
 
-                if (temps.Count > 0)
-                {
-                    var max = temps.Max();
-                    _logger.LogDebug("Read {Count} thermal zones, max={Max}°C", temps.Count, max);
-                    return (double?)max;
-                }
+                if (maxTemp.HasValue)
+                    _logger.LogDebug("ACPI thermal zone max: {Temp}°C", maxTemp.Value);
 
-                _logger.LogDebug("No thermal zone data returned");
-                return null;
+                return (maxTemp, "ACPI");
             }
             catch (Exception ex)
             {
-                _logger.LogDebug("ThermalZoneInformation query failed: {Message}", ex.Message);
-                return null;
+                _logger.LogDebug("ACPI thermal query failed: {Message}", ex.Message);
+                return ((double?)null, "none");
             }
         });
     }
 
-    private async Task<double?> GetLinuxTemperatureAsync()
+    private async Task<(double? temp, string source)> GetLinuxTempAsync()
     {
         return await Task.Run(() =>
         {
             try
             {
-                if (!Directory.Exists("/sys/class/thermal")) return null;
+                if (!Directory.Exists("/sys/class/thermal"))
+                    return ((double?)null, "none");
 
-                var temps = new List<double>();
+                double? maxTemp = null;
 
                 foreach (var zone in Directory.GetDirectories("/sys/class/thermal", "thermal_zone*"))
                 {
@@ -161,19 +230,16 @@ public class TemperatureCollector : IMetricCollector
                     {
                         var celsius = milliCelsius / 1000.0;
                         if (celsius is > -50 and < 150)
-                        {
-                            temps.Add(Math.Round(celsius, 1));
-                            _logger.LogTrace("Linux thermal zone: {Temp}°C", celsius);
-                        }
+                            maxTemp = Math.Max(maxTemp ?? 0, Math.Round(celsius, 1));
                     }
                 }
 
-                return temps.Count > 0 ? (double?)temps.Max() : null;
+                return (maxTemp, "sysfs");
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Linux thermal zone read failed");
-                return null;
+                _logger.LogDebug(ex, "Linux thermal read failed");
+                return ((double?)null, "none");
             }
         });
     }
