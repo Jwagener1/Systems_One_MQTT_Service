@@ -1,32 +1,37 @@
+using Microsoft.Extensions.Options;
 using Systems_One_MQTT_Service.Abstractions;
 using Systems_One_MQTT_Service.Metrics;
 
 namespace Systems_One_MQTT_Service.Collectors.OS;
 
 /// <summary>
-/// Collects disk free space information.
+/// Collects disk free space information for internal/fixed drives only.
 /// </summary>
 public class DiskFreeCollector : IMetricCollector
 {
     private readonly ILogger<DiskFreeCollector>? _logger;
-    private readonly HashSet<string>? _driveLetters; // normalized like "C:" or "/" on Unix
+    private readonly IClock _clock;
+    private readonly HashSet<string>? _driveLetters;
 
-    public string Name => "OS";
+    public string Name => "Disk Free";
+    public string Category => "OS";
 
-    /// <summary>
-    /// Create a DiskFreeCollector.
-    /// Provide specific drive letters to restrict monitoring to those drives.
-    /// Examples on Windows: ["C", "D"], they will be normalized to "C:" and "D:".
-    /// On Unix-like systems, use mount names (e.g., "/").
-    /// </summary>
-    public DiskFreeCollector(ILogger<DiskFreeCollector>? logger = null, IEnumerable<string>? driveLetters = null)
+    public DiskFreeCollector(IClock clock, IOptions<DiskFreeCollectorOptions> options, ILogger<DiskFreeCollector>? logger = null)
     {
+        _clock = clock;
         _logger = logger;
-        if (driveLetters != null)
+
+        var paths = options.Value.Monitors
+            .Select(m => m.Path)
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(p => p!)
+            .ToList();
+
+        if (paths.Count > 0)
         {
-            _driveLetters = new HashSet<string>(driveLetters
-                .Where(s => !string.IsNullOrWhiteSpace(s))
-                .Select(NormalizeDriveLetter), StringComparer.OrdinalIgnoreCase);
+            _driveLetters = new HashSet<string>(
+                paths.Select(NormalizeDriveLetter),
+                StringComparer.OrdinalIgnoreCase);
         }
     }
 
@@ -39,7 +44,6 @@ public class DiskFreeCollector : IMetricCollector
             var drives = DriveInfo.GetDrives()
                 .Where(d => d.IsReady && d.DriveType == DriveType.Fixed);
 
-            // If specific drive letters provided, filter to those
             if (_driveLetters != null && _driveLetters.Count > 0)
             {
                 drives = drives.Where(d => _driveLetters.Contains(NormalizeDriveLetter(d.Name)));
@@ -80,7 +84,12 @@ public class DiskFreeCollector : IMetricCollector
                 Name = "Operating System Drives",
                 Value = list,
                 Source = "OS",
-                Timestamp = DateTimeOffset.UtcNow
+                Timestamp = _clock.UtcNow,
+                Tags = new Dictionary<string, object>
+                {
+                    { "drive_count", list.Count },
+                    { "filter", "internal_only" }
+                }
             });
         }
         catch (Exception ex)
@@ -91,19 +100,17 @@ public class DiskFreeCollector : IMetricCollector
         return Task.FromResult<IEnumerable<Metric>>(metrics);
     }
 
-    private static string NormalizeDriveLetter(string value)
+    internal static string NormalizeDriveLetter(string value)
     {
         value = value.Trim();
         if (OperatingSystem.IsWindows())
         {
-            // Accept formats like "C", "C:", "C:\", normalize to "C:"
             if (value.Length >= 1)
             {
                 var letter = char.ToUpperInvariant(value[0]);
                 return letter + ":";
             }
         }
-        // For non-Windows, return as-is (e.g., "/")
         return value.TrimEnd('\\', '/');
     }
 }

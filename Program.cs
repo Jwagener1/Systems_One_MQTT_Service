@@ -3,6 +3,8 @@ using Systems_One_MQTT_Service.Abstractions;
 using Systems_One_MQTT_Service.Collectors.OS;
 using Systems_One_MQTT_Service.Collectors.App;
 using Systems_One_MQTT_Service.Collectors.Database;
+using Systems_One_MQTT_Service.Collectors.PLC;
+using Systems_One_MQTT_Service.Collectors.Cognex;
 using Systems_One_MQTT_Service.Hosting;
 using Systems_One_MQTT_Service.Infrastructure;
 using Systems_One_MQTT_Service.Publishing.Mqtt;
@@ -33,33 +35,51 @@ builder.Services.Configure<DatabaseCollectorOptions>(
 builder.Services.Configure<MqttSettings>(
     builder.Configuration.GetSection("Mqtt"));
 
+builder.Services.Configure<DiskFreeCollectorOptions>(
+    builder.Configuration.GetSection("Drives"));
+
 // Infrastructure
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IScheduler, IntervalScheduler>();
 
-// Production registrations
+// Collectors — OS
 builder.Services.AddSingleton<IMetricCollector, OsVersionCollector>();
 builder.Services.AddSingleton<IMetricCollector, OsUptimeCollector>();
-builder.Services.AddSingleton<IMetricCollector>(sp => new DiskFreeCollector(
-    sp.GetRequiredService<ILogger<DiskFreeCollector>>(),
-    builder.Configuration
-        .GetSection("Drives:Monitors")
-        .GetChildren()
-        .Select(c => c["Path"]) // IEnumerable<string?> from config
-        .Where(p => !string.IsNullOrWhiteSpace(p))
-        .Select(p => p!) // unwrap to IEnumerable<string>
-));
-builder.Services.AddSingleton<IMetricCollector, AppCollector>();
-builder.Services.AddSingleton<IMetricCollector, DatabaseCollector>();
+builder.Services.AddSingleton<IMetricCollector, DiskFreeCollector>();
 builder.Services.AddSingleton<IMetricCollector, CpuUsageCollector>();
 builder.Services.AddSingleton<IMetricCollector, MemoryUsageCollector>();
+builder.Services.AddSingleton<IMetricCollector, TemperatureCollector>();
 
-// Publishers (placeholder)
-builder.Services.AddSingleton<IMetricPublisher, MqttMetricPublisher>();
+// Collectors — App
+builder.Services.AddSingleton<IMetricCollector, AppCollector>();
+
+// Collectors — Database
+builder.Services.AddSingleton<IMetricCollector, DatabaseCollector>();
+
+// ──────────────────────────────────────────────────────────────────
+// Future collectors — uncomment when ready to enable
+// ──────────────────────────────────────────────────────────────────
+// builder.Services.Configure<PlcErrorCollectorOptions>(
+//     builder.Configuration.GetSection("PlcErrorCollector"));
+// builder.Services.AddSingleton<IMetricCollector, PlcErrorCollector>();
+
+// builder.Services.Configure<CognexDmccOptions>(
+//     builder.Configuration.GetSection("CognexDmcc"));
+// builder.Services.AddSingleton<IMetricCollector, CognexDmccCollector>();
+// ──────────────────────────────────────────────────────────────────
+
+// Publishers
+builder.Services.AddSingleton<MqttMetricPublisher>();
+builder.Services.AddSingleton<IMetricPublisher>(sp => sp.GetRequiredService<MqttMetricPublisher>());
+
+// Health checks
+builder.Services.AddHealthChecks()
+    .AddCheck<MqttHealthCheck>("mqtt")
+    .AddCheck<DatabaseHealthCheck>("database");
 
 // Hosted services
-builder.Services.AddHostedService<MonitoringWorker>(); // periodic 5-min loop
-builder.Services.AddHostedService<AppRealtimeWorker>(); // near-realtime app running + settings changes
+builder.Services.AddHostedService<MonitoringWorker>();
+builder.Services.AddHostedService<AppRealtimeWorker>();
 
 var host = builder.Build();
 await host.RunAsync();

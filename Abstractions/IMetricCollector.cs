@@ -15,7 +15,13 @@ public interface IMetricCollector
     Task<IEnumerable<Metric>> CollectAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets the name of the collector for identification purposes.
+    /// Gets the human-readable display name of the collector.
     /// </summary>
     string Name { get; }
+
+    /// <summary>
+    /// Gets the routing category for the collector (e.g., "OS", "App", "DB").
+    /// Used by workers to filter which collectors to run.
+    /// </summary>
+    string Category { get; }
 }

@@ -7,17 +7,20 @@ namespace Systems_One_MQTT_Service.Collectors.OS;
 /// <summary>
 /// Collects CPU usage information.
 /// </summary>
-public class CpuUsageCollector : IMetricCollector
+public class CpuUsageCollector : IMetricCollector, IDisposable
 {
     private readonly PerformanceCounter? _cpuCounter;
     private readonly ILogger<CpuUsageCollector>? _logger;
+    private readonly IClock _clock;
 
     public string Name => "CPU Usage";
+    public string Category => "OS";
 
-    public CpuUsageCollector(ILogger<CpuUsageCollector>? logger = null)
+    public CpuUsageCollector(IClock clock, ILogger<CpuUsageCollector>? logger = null)
     {
+        _clock = clock;
         _logger = logger;
-        
+
         try
         {
             if (OperatingSystem.IsWindows())
@@ -43,8 +46,6 @@ public class CpuUsageCollector : IMetricCollector
 
             if (_cpuCounter != null && OperatingSystem.IsWindows())
             {
-                // Wait a small amount to get accurate reading
-                await Task.Delay(100, cancellationToken);
                 cpuUsage = _cpuCounter.NextValue();
             }
             else
@@ -71,7 +72,7 @@ public class CpuUsageCollector : IMetricCollector
                 Value = Math.Round(cpuUsage, 2),
                 Unit = "percent",
                 Source = "OS",
-                Timestamp = DateTimeOffset.UtcNow,
+                Timestamp = _clock.UtcNow,
                 Tags = new Dictionary<string, object>
                 {
                     { "processor_count", Environment.ProcessorCount }
@@ -84,5 +85,10 @@ public class CpuUsageCollector : IMetricCollector
         }
 
         return metrics;
+    }
+
+    public void Dispose()
+    {
+        _cpuCounter?.Dispose();
     }
 }

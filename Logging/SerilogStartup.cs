@@ -14,6 +14,8 @@ public static class SerilogStartup
         var environment = builder.Environment.EnvironmentName ?? "Production";
         var isDevelopment = string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase);
 
+        var logPath = Path.Combine(AppContext.BaseDirectory, "logs", "system-one-.json");
+
         var loggerConfig = new LoggerConfiguration()
             .ReadFrom.Configuration(configuration)
             .Enrich.FromLogContext()
@@ -28,7 +30,7 @@ public static class SerilogStartup
             .MinimumLevel.Override("MQTTnet", LogEventLevel.Warning)
             .WriteTo.Console()
             .WriteTo.File(new JsonFormatter(),
-                path: "logs/system-one-.json",
+                path: logPath,
                 rollingInterval: RollingInterval.Day,
                 restrictedToMinimumLevel: isDevelopment ? LogEventLevel.Debug : LogEventLevel.Information,
                 flushToDiskInterval: TimeSpan.FromSeconds(1));

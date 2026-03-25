@@ -9,12 +9,16 @@ namespace Systems_One_MQTT_Service.Collectors.OS;
 /// </summary>
 public class OsVersionCollector : IMetricCollector
 {
-    public string Name => "OS";
-    private readonly ILogger<OsVersionCollector> _logger;
+    public string Name => "OS Version";
+    public string Category => "OS";
 
-    public OsVersionCollector(ILogger<OsVersionCollector> logger)
+    private readonly ILogger<OsVersionCollector> _logger;
+    private readonly IClock _clock;
+
+    public OsVersionCollector(ILogger<OsVersionCollector> logger, IClock clock)
     {
         _logger = logger;
+        _clock = clock;
     }
 
     public Task<IEnumerable<Metric>> CollectAsync(CancellationToken cancellationToken = default)
@@ -32,7 +36,7 @@ public class OsVersionCollector : IMetricCollector
                 Name = "Operating System Version",
                 Value = osVersion.VersionString,
                 Source = "OS",
-                Timestamp = DateTimeOffset.UtcNow,
+                Timestamp = _clock.UtcNow,
                 Tags = new Dictionary<string, object>
                 {
                     { "platform", osVersion.Platform.ToString() },

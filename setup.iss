@@ -28,6 +28,16 @@ Source: "publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs creat
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 
 [Run]
+; Stop existing service if upgrading
+Filename: "sc.exe"; Parameters: "stop ""{#MyAppName}"""; \
+  Flags: runhidden; StatusMsg: "Stopping existing service (if running)..."; Check: ServiceExists
+; Delete existing service if upgrading
+Filename: "sc.exe"; Parameters: "delete ""{#MyAppName}"""; \
+  Flags: runhidden; StatusMsg: "Removing old service registration..."; Check: ServiceExists
+; Wait for service to fully stop/delete
+Filename: "cmd.exe"; Parameters: "/c timeout /t 3 /nobreak >nul"; \
+  Flags: runhidden; StatusMsg: "Waiting for cleanup..."
+; Create the service fresh
 Filename: "sc.exe"; Parameters: "create ""{#MyAppName}"" binPath=""{app}\{#MyAppExeName}"" start=auto"; \
   Flags: runhidden; StatusMsg: "Installing Windows Service..."
 Filename: "sc.exe"; Parameters: "failure ""{#MyAppName}"" reset=86400 actions=restart/5000/restart/10000/restart/30000"; \
@@ -40,6 +50,14 @@ Filename: "sc.exe"; Parameters: "stop ""{#MyAppName}"""; Flags: runhidden
 Filename: "sc.exe"; Parameters: "delete ""{#MyAppName}"""; Flags: runhidden
 
 [Code]
+function ServiceExists(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  // sc query returns 0 if service exists
+  Result := Exec('sc.exe', ExpandConstant('query "{#MyAppName}"'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+end;
+
 var
   DbPage: TInputQueryWizardPage;
   MqttPage: TInputQueryWizardPage;

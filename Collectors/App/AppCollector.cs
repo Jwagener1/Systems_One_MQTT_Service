@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
@@ -9,18 +10,22 @@ namespace Systems_One_MQTT_Service.Collectors.App;
 public class AppCollector : IMetricCollector
 {
     public string Name => "App";
+    public string Category => "App";
 
     private readonly string _settingsDir;
     private readonly string _exePath;
     private readonly string _processName;
     private readonly ILogger<AppCollector> _logger;
+    private readonly IClock _clock;
 
+    private readonly object _stateLock = new();
     private bool? _lastRunning;
-    private readonly Dictionary<string, string> _lastSettingsHashes = new();
+    private readonly ConcurrentDictionary<string, string> _lastSettingsHashes = new();
 
-    public AppCollector(IOptions<AppCollectorOptions> options, ILogger<AppCollector> logger)
+    public AppCollector(IOptions<AppCollectorOptions> options, ILogger<AppCollector> logger, IClock clock)
     {
         _logger = logger;
+        _clock = clock;
         var opts = options.Value;
         _settingsDir = string.IsNullOrWhiteSpace(opts.SettingsDir)
             ? "C:/Users/Public/Documents/SystemOne_App_Settings"
@@ -38,27 +43,32 @@ public class AppCollector : IMetricCollector
         using (_logger.BeginScope(new Dictionary<string, object> { ["Component"] = nameof(AppCollector) }))
         {
             var metrics = new List<Metric>();
+            var now = _clock.UtcNow;
 
             var (isRunning, processCount, pathMatched) = GetProcessState(_processName, _exePath, _logger);
-            if (_lastRunning != isRunning)
+
+            lock (_stateLock)
             {
-                _logger.LogInformation("App running state changed: {Old} -> {New}", _lastRunning, isRunning);
-                _lastRunning = isRunning;
-                metrics.Add(new Metric
+                if (_lastRunning != isRunning)
                 {
-                    Id = "app.running",
-                    Name = "App Running",
-                    Value = isRunning,
-                    Source = "App",
-                    Timestamp = DateTimeOffset.UtcNow,
-                    Tags = new Dictionary<string, object>
+                    _logger.LogInformation("App running state changed: {Old} -> {New}", _lastRunning, isRunning);
+                    _lastRunning = isRunning;
+                    metrics.Add(new Metric
                     {
-                        { "process_name", _processName },
-                        { "exe_path", _exePath },
-                        { "process_count", processCount },
-                        { "path_match", pathMatched }
-                    }
-                });
+                        Id = "app.running",
+                        Name = "App Running",
+                        Value = isRunning,
+                        Source = "App",
+                        Timestamp = now,
+                        Tags = new Dictionary<string, object>
+                        {
+                            { "process_name", _processName },
+                            { "exe_path", _exePath },
+                            { "process_count", processCount },
+                            { "path_match", pathMatched }
+                        }
+                    });
+                }
             }
 
             try
@@ -73,26 +83,28 @@ public class AppCollector : IMetricCollector
                         var hashBytes = sha.ComputeHash(fs);
                         var hash = Convert.ToHexString(hashBytes);
 
-                        if (!_lastSettingsHashes.TryGetValue(key, out var oldHash) || !string.Equals(hash, oldHash, StringComparison.OrdinalIgnoreCase))
+                        var previousHash = _lastSettingsHashes.GetOrAdd(key, _ => string.Empty);
+                        if (string.Equals(hash, previousHash, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        _lastSettingsHashes[key] = hash;
+
+                        fs.Position = 0;
+                        var doc = JsonDocument.Parse(fs);
+                        metrics.Add(new Metric
                         {
-                            fs.Position = 0;
-                            var doc = JsonDocument.Parse(fs);
-                            metrics.Add(new Metric
+                            Id = $"app.settings.{key}",
+                            Name = $"{key} settings",
+                            Value = doc.RootElement.Clone(),
+                            Source = "App",
+                            Timestamp = now,
+                            Tags = new Dictionary<string, object>
                             {
-                                Id = $"app.settings.{key}",
-                                Name = $"{key} settings",
-                                Value = doc.RootElement.Clone(),
-                                Source = "App",
-                                Timestamp = DateTimeOffset.UtcNow,
-                                Tags = new Dictionary<string, object>
-                                {
-                                    { "path", path },
-                                    { "hash", hash }
-                                }
-                            });
-                            _lastSettingsHashes[key] = hash;
-                            _logger.LogInformation("Settings changed: {Key}", key);
-                        }
+                                { "path", path },
+                                { "hash", hash }
+                            }
+                        });
+                        _logger.LogInformation("Settings changed: {Key}", key);
                     }
                 }
                 else

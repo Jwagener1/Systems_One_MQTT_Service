@@ -8,16 +8,19 @@ namespace Systems_One_MQTT_Service.Collectors.Database;
 
 public class DatabaseCollector : IMetricCollector
 {
-    public string Name => "DB";
+    public string Name => "Database";
+    public string Category => "DB";
 
     private readonly DatabaseCollectorOptions _options;
     private readonly string _connectionString;
     private readonly ILogger<DatabaseCollector> _logger;
+    private readonly IClock _clock;
 
-    public DatabaseCollector(IOptions<DatabaseCollectorOptions> options, ILogger<DatabaseCollector> logger)
+    public DatabaseCollector(IOptions<DatabaseCollectorOptions> options, ILogger<DatabaseCollector> logger, IClock clock)
     {
         _options = options.Value;
         _logger = logger;
+        _clock = clock;
         var builder = new SqlConnectionStringBuilder
         {
             DataSource = _options.Server ?? string.Empty,
@@ -42,7 +45,7 @@ public class DatabaseCollector : IMetricCollector
                 Id = "db.connection",
                 Name = "Database Connection Status",
                 Source = "DB",
-                Timestamp = DateTimeOffset.UtcNow,
+                Timestamp = _clock.UtcNow,
                 Value = false,
                 Tags = new Dictionary<string, object>
                 {
@@ -72,7 +75,7 @@ public class DatabaseCollector : IMetricCollector
                     Id = "db.itemlog.summary",
                     Name = "ItemLog Summary (5-minute window)",
                     Source = "DB",
-                    Timestamp = DateTimeOffset.UtcNow,
+                    Timestamp = _clock.UtcNow,
                     Value = summary,
                     Tags = new Dictionary<string, object>
                     {
@@ -89,7 +92,7 @@ public class DatabaseCollector : IMetricCollector
                     Id = "db.query.error",
                     Name = "Database Query Error",
                     Source = "DB",
-                    Timestamp = DateTimeOffset.UtcNow,
+                    Timestamp = _clock.UtcNow,
                     Value = ex.Message
                 });
             }

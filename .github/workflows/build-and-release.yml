@@ -4,39 +4,69 @@ on:
   push:
     branches:
       - master
+  pull_request:
+    branches:
+      - master
   workflow_dispatch:
 
 jobs:
-  build-and-release:
+  test:
     runs-on: windows-latest
-
-    permissions:
-      contents: write
+    name: Run Tests
 
     steps:
-      # 1. Check out the repository code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Set up .NET 8 SDK
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      # 3. Restore NuGet packages
       - name: Restore dependencies
         run: dotnet restore Systems_One_MQTT_Service.sln
 
-      # 4. Build the solution
       - name: Build
         run: dotnet build Systems_One_MQTT_Service.sln --configuration Release --no-restore
 
-      # 5. Run tests
       - name: Run tests
-        run: dotnet test Tests/Systems_One_MQTT_Service.Tests.csproj --configuration Release --no-build --verbosity normal
+        run: >
+          dotnet test Tests/Systems_One_MQTT_Service.Tests.csproj
+          --configuration Release
+          --no-build
+          --verbosity normal
+          --logger "trx;LogFileName=test-results.trx"
 
-      # 6. Generate version number (date + run number)
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: Tests/TestResults/test-results.trx
+
+  build-and-release:
+    runs-on: windows-latest
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore Systems_One_MQTT_Service.sln
+
+      - name: Build
+        run: dotnet build Systems_One_MQTT_Service.sln --configuration Release --no-restore
+
       - name: Set version
         id: version
         run: |
@@ -44,7 +74,6 @@ jobs:
           echo "VERSION=$version" >> $env:GITHUB_OUTPUT
         shell: pwsh
 
-      # 7. Publish as self-contained Windows x64
       - name: Publish application
         run: >
           dotnet publish Systems_One_MQTT_Service.csproj
@@ -54,14 +83,12 @@ jobs:
           --output ./publish
           -p:PublishSingleFile=false
 
-      # 8. Compile the Inno Setup installer
       - name: Build Inno Setup Installer
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
         with:
           path: setup.iss
           options: /O+
 
-      # 9. Create GitHub Release with installer
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -77,13 +104,8 @@ jobs:
             Run the installer as Administrator. It will automatically install and start the Windows Service.
 
             ### Post-install: Set credentials
-            On the installed machine, configure secrets via environment variables or run:
-            ```
-            dotnet user-secrets set "Database:Username" "<value>"
-            dotnet user-secrets set "Database:Password" "<value>"
-            dotnet user-secrets set "Mqtt:Username" "<value>"
-            dotnet user-secrets set "Mqtt:Password" "<value>"
-            ```
+            Create `appsettings.Production.json` in the install directory with your Database and MQTT credentials.
+            See `appsettings.Production.json.example` for the format.
           files: installer_output/Systems_One_MQTT_Service_Setup.exe
           draft: false
           prerelease: false

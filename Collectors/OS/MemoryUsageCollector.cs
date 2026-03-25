@@ -7,17 +7,20 @@ namespace Systems_One_MQTT_Service.Collectors.OS;
 /// <summary>
 /// Collects memory usage information.
 /// </summary>
-public class MemoryUsageCollector : IMetricCollector
+public class MemoryUsageCollector : IMetricCollector, IDisposable
 {
     private readonly PerformanceCounter? _availableMemoryCounter;
     private readonly ILogger<MemoryUsageCollector>? _logger;
+    private readonly IClock _clock;
 
     public string Name => "Memory Usage";
+    public string Category => "OS";
 
-    public MemoryUsageCollector(ILogger<MemoryUsageCollector>? logger = null)
+    public MemoryUsageCollector(IClock clock, ILogger<MemoryUsageCollector>? logger = null)
     {
+        _clock = clock;
         _logger = logger;
-        
+
         try
         {
             if (OperatingSystem.IsWindows())
@@ -48,12 +51,12 @@ public class MemoryUsageCollector : IMetricCollector
             }
             else
             {
-                // Fallback: use GC memory info
                 availableMemoryMB = (totalMemoryBytes - gcInfo.MemoryLoadBytes) / 1024.0 / 1024.0;
             }
 
             var usedMemoryMB = totalMemoryMB - availableMemoryMB;
             var memoryUsagePercent = (usedMemoryMB / totalMemoryMB) * 100;
+            var now = _clock.UtcNow;
 
             metrics.Add(new Metric
             {
@@ -62,7 +65,7 @@ public class MemoryUsageCollector : IMetricCollector
                 Value = Math.Round(totalMemoryMB, 2),
                 Unit = "MB",
                 Source = "OS",
-                Timestamp = DateTimeOffset.UtcNow
+                Timestamp = now
             });
 
             metrics.Add(new Metric
@@ -72,7 +75,7 @@ public class MemoryUsageCollector : IMetricCollector
                 Value = Math.Round(availableMemoryMB, 2),
                 Unit = "MB",
                 Source = "OS",
-                Timestamp = DateTimeOffset.UtcNow
+                Timestamp = now
             });
 
             metrics.Add(new Metric
@@ -82,7 +85,7 @@ public class MemoryUsageCollector : IMetricCollector
                 Value = Math.Round(usedMemoryMB, 2),
                 Unit = "MB",
                 Source = "OS",
-                Timestamp = DateTimeOffset.UtcNow
+                Timestamp = now
             });
 
             metrics.Add(new Metric
@@ -92,7 +95,7 @@ public class MemoryUsageCollector : IMetricCollector
                 Value = Math.Round(memoryUsagePercent, 2),
                 Unit = "percent",
                 Source = "OS",
-                Timestamp = DateTimeOffset.UtcNow
+                Timestamp = now
             });
         }
         catch (Exception ex)
@@ -101,5 +104,10 @@ public class MemoryUsageCollector : IMetricCollector
         }
 
         return Task.FromResult<IEnumerable<Metric>>(metrics);
+    }
+
+    public void Dispose()
+    {
+        _availableMemoryCounter?.Dispose();
     }
 }

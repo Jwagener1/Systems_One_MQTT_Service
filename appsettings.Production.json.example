@@ -1,0 +1,11 @@
+{
+  "_comment": "Production credentials — DO NOT commit to source control",
+  "Database": {
+    "Username": "",
+    "Password": ""
+  },
+  "Mqtt": {
+    "Username": "",
+    "Password": ""
+  }
+}

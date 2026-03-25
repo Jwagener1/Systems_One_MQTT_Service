@@ -7,5 +7,5 @@ public class DatabaseCollectorOptions
     public string? TableName { get; set; }
     public string? Username { get; set; }
     public string? Password { get; set; }
-    public int TimeoutSeconds { get; set; } = 5;
+    public int TimeoutSeconds { get; set; } = 30;
 }

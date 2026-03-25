@@ -7,7 +7,7 @@ namespace Systems_One_MQTT_Service.Hosting
         private readonly ILogger<AppRealtimeWorker> _logger;
         private readonly IEnumerable<IMetricCollector> _collectors;
         private readonly IMetricPublisher _publisher;
-        private const int IntervalMs = 2000; // 2 seconds for near real-time
+        private const int IntervalMs = 2000;
 
         public AppRealtimeWorker(ILogger<AppRealtimeWorker> logger, IEnumerable<IMetricCollector> collectors, IMetricPublisher publisher)
         {
@@ -20,7 +20,7 @@ namespace Systems_One_MQTT_Service.Hosting
         {
             using (_logger.BeginScope(new Dictionary<string, object> { ["Component"] = nameof(AppRealtimeWorker) }))
             {
-                var appCollectors = _collectors.Where(c => string.Equals(c.Name, "App", StringComparison.OrdinalIgnoreCase)).ToList();
+                var appCollectors = _collectors.Where(c => string.Equals(c.Category, "App", StringComparison.OrdinalIgnoreCase)).ToList();
                 if (appCollectors.Count == 0)
                 {
                     _logger.LogWarning("No App collectors registered; realtime monitoring disabled");
@@ -35,11 +35,16 @@ namespace Systems_One_MQTT_Service.Hosting
                         foreach (var collector in appCollectors)
                         {
                             var metrics = await collector.CollectAsync(stoppingToken);
-                            if (metrics.Any())
+                            var list = metrics.ToList();
+                            if (list.Count > 0)
                             {
-                                await _publisher.PublishAsync(metrics, stoppingToken);
+                                await _publisher.PublishAsync(list, stoppingToken);
                             }
                         }
+                    }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                    {
+                        break;
                     }
                     catch (Exception ex)
                     {

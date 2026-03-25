@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Systems_One_MQTT_Service.Abstractions;
 using Systems_One_MQTT_Service.Metrics;
 
@@ -9,7 +8,15 @@ namespace Systems_One_MQTT_Service.Collectors.OS;
 /// </summary>
 public class OsUptimeCollector : IMetricCollector
 {
+    private readonly IClock _clock;
+
     public string Name => "OS Uptime";
+    public string Category => "OS";
+
+    public OsUptimeCollector(IClock clock)
+    {
+        _clock = clock;
+    }
 
     public Task<IEnumerable<Metric>> CollectAsync(CancellationToken cancellationToken = default)
     {
@@ -25,7 +32,7 @@ public class OsUptimeCollector : IMetricCollector
             Value = uptimeTimeSpan.TotalSeconds,
             Unit = "seconds",
             Source = "OS",
-            Timestamp = DateTimeOffset.UtcNow,
+            Timestamp = _clock.UtcNow,
             Tags = new Dictionary<string, object>
             {
                 { "uptime_days", uptimeTimeSpan.Days },

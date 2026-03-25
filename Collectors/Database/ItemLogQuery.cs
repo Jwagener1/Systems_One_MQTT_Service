@@ -8,7 +8,7 @@ public static class ItemLogQuery
     private static readonly System.Text.RegularExpressions.Regex SafeTableName =
         new(@"^[A-Za-z_][A-Za-z0-9_]*$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    private static string ValidateTableName(string tableName)
+    internal static string ValidateTableName(string tableName)
     {
         if (string.IsNullOrWhiteSpace(tableName) || !SafeTableName.IsMatch(tableName))
             throw new ArgumentException($"Invalid table name: '{tableName}'. Only alphanumeric characters and underscores are allowed.");
