@@ -4,9 +4,12 @@ using Systems_One_MQTT_Service.Metrics;
 namespace Systems_One_MQTT_Service.Collectors.OS;
 
 /// <summary>
-/// Collects PC temperature metrics from thermal zones.
-/// On Windows: requires admin for WMI root\WMI, falls back to perf counters.
-/// On Linux: reads /sys/class/thermal/thermal_zone*/temp.
+/// Collects PC temperature metrics.
+/// Tries multiple methods in order of likelihood to work without elevation:
+///   1. Win32_PerfFormattedData_Counters_ThermalZoneInformation (no admin)
+///   2. MSAcpi_ThermalZoneTemperature (requires admin)
+///   3. OpenHardwareMonitor WMI namespace (if installed)
+///   4. Linux sysfs thermal zones
 /// </summary>
 public class TemperatureCollector : IMetricCollector
 {
@@ -73,7 +76,7 @@ public class TemperatureCollector : IMetricCollector
             }
             else
             {
-                _logger.LogDebug("No temperature sensors detected");
+                _logger.LogDebug("No temperature sensors detected via any method");
                 metrics.Add(new Metric
                 {
                     Id = "temperature",
@@ -106,104 +109,178 @@ public class TemperatureCollector : IMetricCollector
 
         await Task.Run(() =>
         {
-            // Method 1: MSAcpi_ThermalZoneTemperature (requires admin/elevated)
-            try
-            {
-                _logger.LogTrace("Trying MSAcpi_ThermalZoneTemperature (root\\WMI)");
-                using var searcher = new System.Management.ManagementObjectSearcher("root\\WMI",
-                    "SELECT * FROM MSAcpi_ThermalZoneTemperature");
-                foreach (System.Management.ManagementObject obj in searcher.Get())
-                {
-                    try
-                    {
-                        var temp = obj["CurrentTemperature"];
-                        if (temp == null) continue;
-                        var celsius = (Convert.ToDouble(temp) / 10.0) - 273.15;
-                        if (celsius is > -50 and < 150)
-                        {
-                            var name = obj["InstanceName"]?.ToString() ?? "Thermal Zone";
-                            readings.Add(new TempReading { Name = name, Temperature = Math.Round(celsius, 1), Source = "MSAcpi" });
-                            _logger.LogTrace("MSAcpi sensor: {Name} = {Temp}°C", name, celsius);
-                        }
-                    }
-                    catch (Exception ex) { _logger.LogTrace(ex, "Error reading MSAcpi thermal zone entry"); }
-                }
-            }
-            catch (System.Management.ManagementException ex)
-            {
-                _logger.LogDebug("MSAcpi_ThermalZoneTemperature not available: {Message} (may need admin privileges)", ex.Message);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "MSAcpi_ThermalZoneTemperature query failed");
-            }
+            // Method 1: Formatted perf data — NO admin required, most reliable
+            TryFormattedThermalZone(readings);
 
-            // Method 2: Win32_PerfRawData_Counters_ThermalZoneInformation (no admin required)
+            // Method 2: MSAcpi — requires admin/elevated
             if (readings.Count == 0)
-            {
-                try
-                {
-                    _logger.LogTrace("Trying Win32_PerfRawData_Counters_ThermalZoneInformation");
-                    using var searcher = new System.Management.ManagementObjectSearcher("root\\CIMV2",
-                        "SELECT * FROM Win32_PerfRawData_Counters_ThermalZoneInformation");
-                    foreach (System.Management.ManagementObject obj in searcher.Get())
-                    {
-                        try
-                        {
-                            var temp = obj["Temperature"];
-                            if (temp == null) continue;
-                            var celsius = (Convert.ToDouble(temp) / 10.0) - 273.15;
-                            if (celsius is > -50 and < 150)
-                            {
-                                var name = obj["Name"]?.ToString() ?? "Thermal Zone";
-                                readings.Add(new TempReading { Name = name, Temperature = Math.Round(celsius, 1), Source = "PerfCounter" });
-                                _logger.LogTrace("PerfCounter sensor: {Name} = {Temp}°C", name, celsius);
-                            }
-                        }
-                        catch (Exception ex) { _logger.LogTrace(ex, "Error reading perf counter thermal entry"); }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "ThermalZoneInformation query failed");
-                }
-            }
+                TryMsAcpiThermalZone(readings);
 
-            // Method 3: Win32_TemperatureProbe (rarely populated but worth trying)
+            // Method 3: OpenHardwareMonitor / LibreHardwareMonitor WMI namespace
             if (readings.Count == 0)
-            {
-                try
-                {
-                    _logger.LogTrace("Trying Win32_TemperatureProbe");
-                    using var searcher = new System.Management.ManagementObjectSearcher(
-                        "SELECT * FROM Win32_TemperatureProbe WHERE CurrentReading IS NOT NULL");
-                    foreach (System.Management.ManagementObject obj in searcher.Get())
-                    {
-                        try
-                        {
-                            var temp = obj["CurrentReading"];
-                            if (temp == null) continue;
-                            var celsius = Convert.ToDouble(temp) / 10.0;
-                            if (celsius is > -50 and < 150)
-                            {
-                                var name = obj["Name"]?.ToString() ?? "Temperature Probe";
-                                readings.Add(new TempReading { Name = name, Temperature = Math.Round(celsius, 1), Source = "TemperatureProbe" });
-                                _logger.LogTrace("TemperatureProbe sensor: {Name} = {Temp}°C", name, celsius);
-                            }
-                        }
-                        catch (Exception ex) { _logger.LogTrace(ex, "Error reading temperature probe"); }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Win32_TemperatureProbe query failed");
-                }
-            }
+                TryOpenHardwareMonitor(readings);
+
+            // Method 4: Win32_TemperatureProbe — rarely populated
+            if (readings.Count == 0)
+                TryTemperatureProbe(readings);
 
             _logger.LogTrace("Windows temperature scan complete: {Count} sensors found", readings.Count);
         });
 
         return readings;
+    }
+
+    private void TryFormattedThermalZone(List<TempReading> readings)
+    {
+        try
+        {
+            _logger.LogTrace("Trying Win32_PerfFormattedData_Counters_ThermalZoneInformation (no admin)");
+            using var searcher = new System.Management.ManagementObjectSearcher("root\\CIMV2",
+                "SELECT Name, HighPrecisionTemperature, Temperature FROM Win32_PerfFormattedData_Counters_ThermalZoneInformation");
+
+            foreach (System.Management.ManagementObject obj in searcher.Get())
+            {
+                try
+                {
+                    // Try HighPrecisionTemperature first (10ths of Kelvin)
+                    var highPrec = obj.TryGetProperty("HighPrecisionTemperature");
+                    var rawTemp = obj.TryGetProperty("Temperature");
+                    var name = obj["Name"]?.ToString() ?? "Thermal Zone";
+
+                    double celsius;
+                    if (highPrec != null)
+                    {
+                        celsius = (Convert.ToDouble(highPrec) / 10.0) - 273.15;
+                        _logger.LogTrace("FormattedThermal (HighPrec): {Name} raw={Raw} → {Celsius}°C", name, highPrec, celsius);
+                    }
+                    else if (rawTemp != null)
+                    {
+                        celsius = Convert.ToDouble(rawTemp) - 273.15;
+                        _logger.LogTrace("FormattedThermal (Temp): {Name} raw={Raw} → {Celsius}°C", name, rawTemp, celsius);
+                    }
+                    else
+                    {
+                        continue;
+                    }
+
+                    if (celsius is > -50 and < 150)
+                    {
+                        readings.Add(new TempReading { Name = name, Temperature = Math.Round(celsius, 1), Source = "PerfFormatted" });
+                    }
+                }
+                catch (Exception ex) { _logger.LogTrace(ex, "Error reading formatted thermal entry"); }
+            }
+
+            if (readings.Count > 0)
+                _logger.LogDebug("Temperature via PerfFormattedData: {Count} sensors", readings.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Win32_PerfFormattedData_Counters_ThermalZoneInformation not available: {Message}", ex.Message);
+        }
+    }
+
+    private void TryMsAcpiThermalZone(List<TempReading> readings)
+    {
+        try
+        {
+            _logger.LogTrace("Trying MSAcpi_ThermalZoneTemperature (requires admin)");
+            using var searcher = new System.Management.ManagementObjectSearcher("root\\WMI",
+                "SELECT * FROM MSAcpi_ThermalZoneTemperature");
+
+            foreach (System.Management.ManagementObject obj in searcher.Get())
+            {
+                try
+                {
+                    var temp = obj["CurrentTemperature"];
+                    if (temp == null) continue;
+                    var celsius = (Convert.ToDouble(temp) / 10.0) - 273.15;
+                    if (celsius is > -50 and < 150)
+                    {
+                        var name = obj["InstanceName"]?.ToString() ?? "Thermal Zone";
+                        readings.Add(new TempReading { Name = name, Temperature = Math.Round(celsius, 1), Source = "MSAcpi" });
+                        _logger.LogTrace("MSAcpi: {Name} = {Temp}°C", name, celsius);
+                    }
+                }
+                catch (Exception ex) { _logger.LogTrace(ex, "Error reading MSAcpi entry"); }
+            }
+
+            if (readings.Count > 0)
+                _logger.LogDebug("Temperature via MSAcpi: {Count} sensors", readings.Count);
+        }
+        catch (System.Management.ManagementException ex)
+        {
+            _logger.LogDebug("MSAcpi not available: {Message} (needs admin)", ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "MSAcpi query failed");
+        }
+    }
+
+    private void TryOpenHardwareMonitor(List<TempReading> readings)
+    {
+        try
+        {
+            _logger.LogTrace("Trying OpenHardwareMonitor WMI namespace");
+            using var searcher = new System.Management.ManagementObjectSearcher("root\\OpenHardwareMonitor",
+                "SELECT Name, Value FROM Sensor WHERE SensorType='Temperature'");
+
+            foreach (System.Management.ManagementObject obj in searcher.Get())
+            {
+                try
+                {
+                    var value = obj["Value"];
+                    if (value == null) continue;
+                    var celsius = Convert.ToDouble(value);
+                    if (celsius is > -50 and < 150)
+                    {
+                        var name = obj["Name"]?.ToString() ?? "Sensor";
+                        readings.Add(new TempReading { Name = name, Temperature = Math.Round(celsius, 1), Source = "OpenHardwareMonitor" });
+                        _logger.LogTrace("OHM: {Name} = {Temp}°C", name, celsius);
+                    }
+                }
+                catch (Exception ex) { _logger.LogTrace(ex, "Error reading OHM entry"); }
+            }
+
+            if (readings.Count > 0)
+                _logger.LogDebug("Temperature via OpenHardwareMonitor: {Count} sensors", readings.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("OpenHardwareMonitor WMI not available: {Message}", ex.Message);
+        }
+    }
+
+    private void TryTemperatureProbe(List<TempReading> readings)
+    {
+        try
+        {
+            _logger.LogTrace("Trying Win32_TemperatureProbe");
+            using var searcher = new System.Management.ManagementObjectSearcher(
+                "SELECT Name, CurrentReading FROM Win32_TemperatureProbe WHERE CurrentReading IS NOT NULL");
+
+            foreach (System.Management.ManagementObject obj in searcher.Get())
+            {
+                try
+                {
+                    var temp = obj["CurrentReading"];
+                    if (temp == null) continue;
+                    var celsius = Convert.ToDouble(temp) / 10.0;
+                    if (celsius is > -50 and < 150)
+                    {
+                        var name = obj["Name"]?.ToString() ?? "Temperature Probe";
+                        readings.Add(new TempReading { Name = name, Temperature = Math.Round(celsius, 1), Source = "TemperatureProbe" });
+                        _logger.LogTrace("Probe: {Name} = {Temp}°C", name, celsius);
+                    }
+                }
+                catch (Exception ex) { _logger.LogTrace(ex, "Error reading temperature probe"); }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Win32_TemperatureProbe not available: {Message}", ex.Message);
+        }
     }
 
     private async Task<List<TempReading>> GetLinuxTemperaturesAsync()
@@ -261,5 +338,21 @@ public class TemperatureCollector : IMetricCollector
         public string Name { get; set; } = "";
         public double Temperature { get; set; }
         public string Source { get; set; } = "";
+    }
+}
+
+// Extension to safely get WMI properties that may not exist
+internal static class ManagementObjectExtensions
+{
+    public static object? TryGetProperty(this System.Management.ManagementObject obj, string propertyName)
+    {
+        try
+        {
+            return obj[propertyName];
+        }
+        catch
+        {
+            return null;
+        }
     }
 }
