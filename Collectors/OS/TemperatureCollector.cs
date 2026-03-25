@@ -4,9 +4,8 @@ using Systems_One_MQTT_Service.Metrics;
 namespace Systems_One_MQTT_Service.Collectors.OS;
 
 /// <summary>
-/// Collects system temperature from ACPI thermal zones.
-/// Reports motherboard/chipset temperature (not CPU package — that requires admin or third-party tools).
-/// No admin privileges required.
+/// Collects CPU temperature via MSAcpi_ThermalZoneTemperature (requires admin).
+/// Falls back to ACPI perf counters if WMI root\WMI is unavailable.
 /// </summary>
 public class TemperatureCollector : IMetricCollector
 {
@@ -32,9 +31,16 @@ public class TemperatureCollector : IMetricCollector
             double? tempCelsius = null;
 
             if (OperatingSystem.IsWindows())
-                tempCelsius = await GetWindowsTempAsync();
+            {
+                tempCelsius = await GetMsAcpiTempAsync();
+
+                if (!tempCelsius.HasValue)
+                    tempCelsius = await GetPerfCounterTempAsync();
+            }
             else if (OperatingSystem.IsLinux())
+            {
                 tempCelsius = await GetLinuxTempAsync();
+            }
 
             if (tempCelsius.HasValue)
             {
@@ -80,12 +86,60 @@ public class TemperatureCollector : IMetricCollector
         return metrics;
     }
 
-    private async Task<double?> GetWindowsTempAsync()
+    /// <summary>
+    /// MSAcpi_ThermalZoneTemperature — requires admin/LocalSystem.
+    /// Returns actual CPU thermal zone temperature.
+    /// </summary>
+    private async Task<double?> GetMsAcpiTempAsync()
     {
         return await Task.Run(() =>
         {
             try
             {
+                _logger.LogTrace("Querying MSAcpi_ThermalZoneTemperature (root\\WMI)");
+
+                using var searcher = new System.Management.ManagementObjectSearcher("root\\WMI",
+                    "SELECT CurrentTemperature FROM MSAcpi_ThermalZoneTemperature");
+
+                double? maxTemp = null;
+
+                foreach (System.Management.ManagementObject obj in searcher.Get())
+                {
+                    var raw = obj["CurrentTemperature"];
+                    if (raw == null) continue;
+
+                    // Value is in tenths of Kelvin
+                    var celsius = (Convert.ToDouble(raw) / 10.0) - 273.15;
+                    _logger.LogTrace("MSAcpi zone: {Temp}°C", Math.Round(celsius, 1));
+
+                    if (celsius is > -50 and < 150)
+                        maxTemp = Math.Max(maxTemp ?? 0, Math.Round(celsius, 1));
+                }
+
+                if (maxTemp.HasValue)
+                    _logger.LogDebug("MSAcpi temperature: {Temp}°C", maxTemp.Value);
+
+                return maxTemp;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug("MSAcpi query failed: {Message}", ex.Message);
+                return null;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Fallback: ACPI perf counters (no admin, but reports motherboard/chipset temps).
+    /// </summary>
+    private async Task<double?> GetPerfCounterTempAsync()
+    {
+        return await Task.Run(() =>
+        {
+            try
+            {
+                _logger.LogTrace("Falling back to ThermalZoneInformation perf counters");
+
                 using var searcher = new System.Management.ManagementObjectSearcher("root\\CIMV2",
                     "SELECT Temperature FROM Win32_PerfFormattedData_Counters_ThermalZoneInformation");
 
@@ -97,8 +151,6 @@ public class TemperatureCollector : IMetricCollector
                     if (raw == null) continue;
 
                     var celsius = Convert.ToDouble(raw) - 273.15;
-                    _logger.LogTrace("Thermal zone: {Temp}°C", Math.Round(celsius, 1));
-
                     if (celsius is > -50 and < 150)
                         maxTemp = Math.Max(maxTemp ?? 0, Math.Round(celsius, 1));
                 }
@@ -107,7 +159,7 @@ public class TemperatureCollector : IMetricCollector
             }
             catch (Exception ex)
             {
-                _logger.LogDebug("Thermal zone query failed: {Message}", ex.Message);
+                _logger.LogDebug("PerfCounter thermal query failed: {Message}", ex.Message);
                 return null;
             }
         });
