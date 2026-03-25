@@ -12,32 +12,49 @@ public class DatabaseCollector : IMetricCollector
     public string Category => "DB";
 
     private readonly DatabaseCollectorOptions _options;
-    private readonly string _connectionString;
+    private readonly string? _connectionString;
     private readonly ILogger<DatabaseCollector> _logger;
     private readonly IClock _clock;
+    private readonly bool _isConfigured;
 
     public DatabaseCollector(IOptions<DatabaseCollectorOptions> options, ILogger<DatabaseCollector> logger, IClock clock)
     {
         _options = options.Value;
         _logger = logger;
         _clock = clock;
-        var builder = new SqlConnectionStringBuilder
+
+        _isConfigured = !string.IsNullOrWhiteSpace(_options.Server);
+
+        if (_isConfigured)
         {
-            DataSource = _options.Server ?? string.Empty,
-            InitialCatalog = _options.DatabaseName ?? string.Empty,
-            UserID = _options.Username ?? string.Empty,
-            Password = _options.Password ?? string.Empty,
-            TrustServerCertificate = true,
-            Encrypt = false,
-            ConnectTimeout = _options.TimeoutSeconds
-        };
-        _connectionString = builder.ConnectionString;
-        _logger.LogDebug("DatabaseCollector initialized: Server={Server}, Database={Database}, Table={Table}, Timeout={Timeout}s",
-            _options.Server, _options.DatabaseName, _options.TableName, _options.TimeoutSeconds);
+            var builder = new SqlConnectionStringBuilder
+            {
+                DataSource = _options.Server!,
+                InitialCatalog = _options.DatabaseName ?? string.Empty,
+                UserID = _options.Username ?? string.Empty,
+                Password = _options.Password ?? string.Empty,
+                TrustServerCertificate = true,
+                Encrypt = false,
+                ConnectTimeout = _options.TimeoutSeconds
+            };
+            _connectionString = builder.ConnectionString;
+            _logger.LogDebug("DatabaseCollector initialized: Server={Server}, Database={Database}, Table={Table}, Timeout={Timeout}s",
+                _options.Server, _options.DatabaseName, _options.TableName, _options.TimeoutSeconds);
+        }
+        else
+        {
+            _logger.LogDebug("DatabaseCollector: no server configured — collector disabled");
+        }
     }
 
     public async Task<IEnumerable<Metric>> CollectAsync(CancellationToken cancellationToken = default)
     {
+        if (!_isConfigured)
+        {
+            _logger.LogTrace("DatabaseCollector skipped — not configured");
+            return Enumerable.Empty<Metric>();
+        }
+
         _logger.LogTrace("DatabaseCollector.CollectAsync started");
         var metrics = new List<Metric>();
 
@@ -71,10 +88,10 @@ public class DatabaseCollector : IMetricCollector
             _logger.LogTrace("Querying {Table} for window {StartUtc} to {EndUtc}", table, startUtc, endUtc);
 
             var summary = await ItemLogQuery.ExecuteWindowSummaryAsync(conn, table, startUtc, endUtc, cancellationToken);
-            
+
             _logger.LogDebug("Query returned summary: TotalItems={Total}, NoRead={NoRead}, DataSent={DataSent}",
                 summary.GetValueOrDefault("Total_Items"), summary.GetValueOrDefault("No_Read"), summary.GetValueOrDefault("Data_Sent"));
-            
+
             metrics.Add(new Metric
             {
                 Id = "db.itemlog.summary",
