@@ -14,16 +14,11 @@ public static class SerilogStartup
         var environment = builder.Environment.EnvironmentName ?? "Production";
         var isDevelopment = string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase);
 
-        // Logging levels:
-        //   Development: Debug (see all collector runs, SQL queries, MQTT publishes)
-        //   Production:  Warning (only warnings, errors, and critical — plus startup/shutdown Info)
-        //
-        // To get Trace-level output, set Serilog:MinimumLevel:Default to "Verbose" in appsettings.
-
         var logPath = Path.Combine(AppContext.BaseDirectory, "logs", "system-one-.json");
 
+        // Build logger entirely from code — do NOT also read from config
+        // to avoid duplicate sinks (appsettings.json WriteTo + code WriteTo)
         var loggerConfig = new LoggerConfiguration()
-            .ReadFrom.Configuration(configuration)
             .Enrich.FromLogContext()
             .Enrich.WithProperty("MachineName", Environment.MachineName)
             .Enrich.WithProperty("ProcessId", Environment.ProcessId)
@@ -32,9 +27,8 @@ public static class SerilogStartup
             .MinimumLevel.Is(isDevelopment ? LogEventLevel.Debug : LogEventLevel.Warning)
             .MinimumLevel.Override("Microsoft", isDevelopment ? LogEventLevel.Information : LogEventLevel.Warning)
             .MinimumLevel.Override("System", isDevelopment ? LogEventLevel.Information : LogEventLevel.Warning)
-            .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information) // Always log startup/shutdown
+            .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
             .MinimumLevel.Override("MQTTnet", LogEventLevel.Warning)
-            // Allow our own namespace to log at Info even in production for key lifecycle events
             .MinimumLevel.Override("Systems_One_MQTT_Service.Hosting", isDevelopment ? LogEventLevel.Debug : LogEventLevel.Information)
             .MinimumLevel.Override("Systems_One_MQTT_Service.Publishing", isDevelopment ? LogEventLevel.Debug : LogEventLevel.Information)
             .WriteTo.Console()
