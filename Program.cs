@@ -10,11 +10,48 @@ using Systems_One_MQTT_Service.Infrastructure;
 using Systems_One_MQTT_Service.Publishing.Mqtt;
 using Systems_One_MQTT_Service.Logging;
 
-var builder = Host.CreateApplicationBuilder(args);
+// ──────────────────────────────────────────────────────────────────
+// Configuration loading order (first found wins per key):
+//   1. C:\Users\Public\Documents\MQTT_Service\appsettings.json
+//   2. {AppDirectory}\appsettings.json  (fallback)
+//
+// No environment variables, no user secrets, no appsettings.Production.json,
+// no appsettings.{Environment}.json — one file, two locations, that's it.
+// ──────────────────────────────────────────────────────────────────
 
-// Load appsettings.Production.json if it exists (for installer-deployed credentials)
-builder.Configuration.AddJsonFile("appsettings.Production.json", optional: true, reloadOnChange: true);
+var sharedConfigDir = @"C:\Users\Public\Documents\MQTT_Service";
+var sharedConfigPath = Path.Combine(sharedConfigDir, "appsettings.json");
+var appDirConfigPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
 
+var builder = Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings
+{
+    Args = args,
+    ApplicationName = "Systems One MQTT Service",
+    ContentRootPath = AppContext.BaseDirectory,
+    DisableDefaults = true  // No auto-loading of config, logging, etc.
+});
+
+// Load config explicitly — shared location first, app directory as fallback
+if (File.Exists(sharedConfigPath))
+{
+    builder.Configuration.AddJsonFile(sharedConfigPath, optional: false, reloadOnChange: true);
+    Console.WriteLine($"[Config] Loaded from: {sharedConfigPath}");
+}
+else if (File.Exists(appDirConfigPath))
+{
+    builder.Configuration.AddJsonFile(appDirConfigPath, optional: false, reloadOnChange: true);
+    Console.WriteLine($"[Config] Loaded from: {appDirConfigPath}");
+}
+else
+{
+    Console.WriteLine($"[Config] WARNING: No appsettings.json found in:");
+    Console.WriteLine($"  - {sharedConfigDir}");
+    Console.WriteLine($"  - {AppContext.BaseDirectory}");
+    Console.WriteLine($"  Service will start with default values.");
+}
+
+// Set up logging
+builder.Logging.AddConfiguration(builder.Configuration.GetSection("Logging"));
 SerilogStartup.ConfigureSerilog(builder);
 
 if (OperatingSystem.IsWindows())
@@ -25,7 +62,7 @@ if (OperatingSystem.IsWindows())
     });
 }
 
-// Bind options from appsettings
+// Bind options from config
 builder.Services.Configure<AppCollectorOptions>(
     builder.Configuration.GetSection("AppCollector"));
 
