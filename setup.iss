@@ -16,6 +16,8 @@ SetupIconFile=Icons\systems_one.ico
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
+WizardSizePercent=120
+WizardResizable=yes
 PrivilegesRequired=admin
 
 [Languages]
@@ -68,12 +70,12 @@ begin
   DbPage := CreateInputQueryPage(wpSelectDir,
     'Database Configuration',
     'Enter the SQL Server connection details.',
-    'These credentials will be stored locally on this machine.');
-  DbPage.Add('Server (e.g. 192.168.1.16,1433):', False);
+    'These credentials will be stored securely on this machine.');
+  DbPage.Add('Server (host:port, e.g. 192.168.1.16,1433):', False);
   DbPage.Add('Database Name:', False);
   DbPage.Add('Table Name:', False);
   DbPage.Add('Username:', False);
-  DbPage.Add('Password:', True);
+  DbPage.Add('Password:', False);
 
   // Set defaults
   DbPage.Values[0] := '192.168.1.16,1433';
@@ -86,13 +88,13 @@ begin
   MqttPage := CreateInputQueryPage(DbPage.ID,
     'MQTT Configuration',
     'Enter the MQTT broker connection details.',
-    'These credentials will be stored locally on this machine.');
+    'These credentials will be stored securely on this machine.');
   MqttPage.Add('Broker URL (e.g. mqtt://192.168.1.16):', False);
-  MqttPage.Add('Broker Port:', False);
+  MqttPage.Add('Port:', False);
   MqttPage.Add('Client ID:', False);
   MqttPage.Add('Base Topic:', False);
   MqttPage.Add('Username:', False);
-  MqttPage.Add('Password:', True);
+  MqttPage.Add('Password:', False);
 
   // Set defaults
   MqttPage.Values[0] := 'mqtt://192.168.1.16';
