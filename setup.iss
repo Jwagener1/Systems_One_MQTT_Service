@@ -51,9 +51,12 @@ Filename: "sc.exe"; Parameters: "delete ""{#MyAppName}"""; \
 ; Wait for service to fully stop/delete
 Filename: "cmd.exe"; Parameters: "/c timeout /t 3 /nobreak >nul"; \
   Flags: runhidden; StatusMsg: "Waiting for cleanup..."
-; Create the service fresh
+; Create the service fresh with Production environment
 Filename: "sc.exe"; Parameters: "create ""{#MyAppName}"" binPath=""{app}\{#MyAppExeName}"" start=auto obj=LocalSystem"; \
   Flags: runhidden; StatusMsg: "Installing Windows Service (as LocalSystem)..."
+; Set environment variable for the service
+Filename: "reg.exe"; Parameters: "add ""HKLM\SYSTEM\CurrentControlSet\Services\{#MyAppName}"" /v Environment /t REG_MULTI_SZ /d ""DOTNET_ENVIRONMENT=Production"" /f"; \
+  Flags: runhidden; StatusMsg: "Configuring service environment..."
 Filename: "sc.exe"; Parameters: "failure ""{#MyAppName}"" reset=86400 actions=restart/5000/restart/10000/restart/30000"; \
   Flags: runhidden; StatusMsg: "Configuring service recovery..."
 Filename: "sc.exe"; Parameters: "start ""{#MyAppName}"""; \

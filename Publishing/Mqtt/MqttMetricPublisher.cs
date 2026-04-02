@@ -30,6 +30,13 @@ public class MqttMetricPublisher : IMetricPublisher
     {
         _settings = options.Value;
         _logger = logger;
+        
+        // Log configuration source for debugging
+        _logger.LogInformation("MQTT Configuration loaded: BrokerUrl={BrokerUrl}, Company={Company}, Location={Location}, MachineId={MachineId}", 
+            _settings.BrokerUrl ?? "NULL", 
+            _settings.Company ?? "NULL", 
+            _settings.Location ?? "NULL", 
+            _settings.MachineId ?? "NULL");
     }
 
     public async Task ConnectAsync(CancellationToken cancellationToken = default)

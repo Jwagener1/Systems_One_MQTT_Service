@@ -12,16 +12,15 @@ using Systems_One_MQTT_Service.Logging;
 
 // ──────────────────────────────────────────────────────────────────
 // Configuration loading order:
-//   1. C:\Users\Public\Documents\MQTT_Service\appsettings.json
-//   2. {AppDirectory}\appsettings.json  (fallback)
+//   1. {AppDirectory}\appsettings.json (base settings)
+//   2. {AppDirectory}\appsettings.{Environment}.json (environment-specific)
+//   3. C:\Users\Public\Documents\MQTT_Service\appsettings.json (legacy shared location)
 //
-// No auto-loading from environment variables, user secrets, or
-// appsettings.{Environment}.json. One file, two locations.
+// Environment defaults to "Production" for deployed service
 // ──────────────────────────────────────────────────────────────────
 
 var sharedConfigDir = @"C:\Users\Public\Documents\MQTT_Service";
 var sharedConfigPath = Path.Combine(sharedConfigDir, "appsettings.json");
-var appDirConfigPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
 
 // Detect environment from DOTNET_ENVIRONMENT or ASPNETCORE_ENVIRONMENT
 var environment = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
@@ -37,22 +36,37 @@ var builder = Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSetti
     DisableDefaults = true
 });
 
-// Load config explicitly
-if (File.Exists(sharedConfigPath))
-{
-    builder.Configuration.AddJsonFile(sharedConfigPath, optional: false, reloadOnChange: true);
-    Console.WriteLine($"[Config] Loaded from: {sharedConfigPath}");
-}
-else if (File.Exists(appDirConfigPath))
+// Load config in order of precedence
+var appDirConfigPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+var envConfigPath = Path.Combine(AppContext.BaseDirectory, $"appsettings.{environment}.json");
+
+// 1. Base configuration
+if (File.Exists(appDirConfigPath))
 {
     builder.Configuration.AddJsonFile(appDirConfigPath, optional: false, reloadOnChange: true);
-    Console.WriteLine($"[Config] Loaded from: {appDirConfigPath}");
+    Console.WriteLine($"[Config] Base: {appDirConfigPath}");
 }
-else
+
+// 2. Environment-specific configuration (this is where installer puts settings)
+if (File.Exists(envConfigPath))
 {
-    Console.WriteLine($"[Config] WARNING: No appsettings.json found in:");
-    Console.WriteLine($"  - {sharedConfigDir}");
-    Console.WriteLine($"  - {AppContext.BaseDirectory}");
+    builder.Configuration.AddJsonFile(envConfigPath, optional: false, reloadOnChange: true);
+    Console.WriteLine($"[Config] Environment ({environment}): {envConfigPath}");
+}
+
+// 3. Legacy shared location (fallback for existing installations)
+if (File.Exists(sharedConfigPath))
+{
+    builder.Configuration.AddJsonFile(sharedConfigPath, optional: true, reloadOnChange: true);
+    Console.WriteLine($"[Config] Legacy: {sharedConfigPath}");
+}
+
+if (!File.Exists(appDirConfigPath) && !File.Exists(envConfigPath) && !File.Exists(sharedConfigPath))
+{
+    Console.WriteLine($"[Config] WARNING: No configuration files found:");
+    Console.WriteLine($"  - {appDirConfigPath}");
+    Console.WriteLine($"  - {envConfigPath}");
+    Console.WriteLine($"  - {sharedConfigPath}");
     Console.WriteLine($"  Service will start with default values.");
 }
 
