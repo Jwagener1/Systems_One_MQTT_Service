@@ -6,10 +6,26 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>dotnet-Systems_One_MQTT_Service-0dc27913-ff76-4af0-b42f-42296e97453e</UserSecretsId>
     <DefaultItemExcludes>$(DefaultItemExcludes);Tests\**</DefaultItemExcludes>
+    
+    <!-- Application icon and metadata -->
+    <ApplicationIcon>Icons\systems_one.ico</ApplicationIcon>
+    <AssemblyTitle>Systems One MQTT Service</AssemblyTitle>
+    <AssemblyDescription>Manufacturing workstation monitoring service that publishes system metrics to MQTT</AssemblyDescription>
+    <AssemblyCompany>Systems One</AssemblyCompany>
+    <AssemblyProduct>Systems One MQTT Service</AssemblyProduct>
+    <AssemblyCopyright>Copyright © Systems One</AssemblyCopyright>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Systems_One_MQTT_Service.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Icons\systems_one.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>

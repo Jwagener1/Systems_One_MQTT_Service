@@ -8,11 +8,19 @@ AppId={{B7E3F1A2-9C4D-4E8F-A6B1-D2C3E4F5A6B7}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
+AppPublisherURL=https://github.com/Jwagener1/Systems_One_MQTT_Service
+AppSupportURL=https://github.com/Jwagener1/Systems_One_MQTT_Service/issues
+AppUpdatesURL=https://github.com/Jwagener1/Systems_One_MQTT_Service/releases
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 OutputDir=installer_output
 OutputBaseFilename=Systems_One_MQTT_Service_Setup
 SetupIconFile=Icons\systems_one.ico
+UninstallDisplayIcon={app}\{#MyAppExeName}
+UninstallDisplayName={#MyAppName}
+VersionInfoVersion={#MyAppVersion}
+VersionInfoDescription=Manufacturing workstation monitoring service that publishes system metrics to MQTT
+VersionInfoCopyright=Copyright © Systems One
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -27,7 +35,11 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; IconIndex: 0
+Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; IconIndex: 0; Tasks: desktopicon
+
+[Tasks]
+Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
 
 [Run]
 ; Stop existing service if upgrading
