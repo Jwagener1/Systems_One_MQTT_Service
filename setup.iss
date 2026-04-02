@@ -63,6 +63,7 @@ end;
 var
   DbPage: TInputQueryWizardPage;
   MqttPage: TInputQueryWizardPage;
+  TopicPage: TInputQueryWizardPage;
 
 procedure InitializeWizard;
 begin
@@ -87,8 +88,8 @@ begin
   // MQTT configuration page
   MqttPage := CreateInputQueryPage(DbPage.ID,
     'MQTT Configuration',
-    'Enter the MQTT broker connection details.',
-    'These credentials will be stored securely on this machine.');
+    'Enter the MQTT broker and topic structure details.',
+    'These settings configure broker connection and topic hierarchy.');
   MqttPage.Add('Broker URL (ws:// or mqtt://):', False);
   MqttPage.Add('Port (leave blank for default):', False);
   MqttPage.Add('Base Path (optional):', False);
@@ -103,6 +104,22 @@ begin
   MqttPage.Values[3] := 'systems-one-service';
   MqttPage.Values[4] := 'admin';
   MqttPage.Values[5] := 'admin';
+
+  // Topic structure configuration page
+  TopicPage := CreateInputQueryPage(MqttPage.ID,
+    'Topic Structure Configuration',
+    'Configure the hierarchical MQTT topic structure.',
+    'Format: base/company/location/machine - e.g., systems-one/PEPKOR/WRH/DIM2');
+  TopicPage.Add('Company (e.g., PEPKOR):', False);
+  TopicPage.Add('Location (e.g., WRH):', False);
+  TopicPage.Add('Machine ID (e.g., DIM2):', False);
+  TopicPage.Add('Base Topic:', False);
+
+  // Set defaults
+  TopicPage.Values[0] := 'PEPKOR';
+  TopicPage.Values[1] := 'WRH';
+  TopicPage.Values[2] := 'DIM2';
+  TopicPage.Values[3] := 'systems-one';
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -142,7 +159,10 @@ begin
       '    "ClientId": "' + MqttPage.Values[3] + '",' + #13#10 +
       '    "Username": "' + MqttPage.Values[4] + '",' + #13#10 +
       '    "Password": "' + MqttPage.Values[5] + '",' + #13#10 +
-      '    "BaseTopic": "test",' + #13#10 +
+      '    "BaseTopic": "' + TopicPage.Values[3] + '",' + #13#10 +
+      '    "Company": "' + TopicPage.Values[0] + '",' + #13#10 +
+      '    "Location": "' + TopicPage.Values[1] + '",' + #13#10 +
+      '    "MachineId": "' + TopicPage.Values[2] + '",' + #13#10 +
       '    "EncryptionTLS": ';
     
     // Add TLS setting based on URL scheme

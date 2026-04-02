@@ -11,4 +11,9 @@ public class MqttSettings
     public bool ValidateCertificate { get; set; } = true;
     public bool EncryptionTLS { get; set; } = false;
     public string? BasePath { get; set; }
+    
+    // Hierarchical topic structure
+    public string? Company { get; set; }
+    public string? Location { get; set; }
+    public string? MachineId { get; set; }
 }

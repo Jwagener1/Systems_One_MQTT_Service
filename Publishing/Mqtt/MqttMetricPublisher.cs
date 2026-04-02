@@ -305,7 +305,18 @@ public class MqttMetricPublisher : IMetricPublisher
 
     private async Task PublishSingleMetricAsync(string machine, Metric metric, CancellationToken cancellationToken)
     {
-        var topic = MqttTopicBuilder.Build(_settings.BaseTopic, machine, metric.Source, metric.Id);
+        string topic;
+        
+        // Use hierarchical structure if configured, otherwise fall back to legacy structure
+        if (!string.IsNullOrEmpty(_settings.Company) && !string.IsNullOrEmpty(_settings.Location) && !string.IsNullOrEmpty(_settings.MachineId))
+        {
+            topic = MqttTopicBuilder.Build(_settings.BaseTopic, _settings.Company, _settings.Location, _settings.MachineId, metric.Source, metric.Id);
+        }
+        else
+        {
+            topic = MqttTopicBuilder.Build(_settings.BaseTopic, machine, metric.Source, metric.Id);
+        }
+        
         var payload = JsonSerializer.Serialize(new
         {
             metric.Id,
@@ -365,6 +376,16 @@ public class MqttMetricPublisher : IMetricPublisher
             _buffer.TryDequeue(out _);
     }
 
-    private string BuildStatusTopic() =>
-        string.Join('/', _settings.BaseTopic, Environment.MachineName, "status");
+    private string BuildStatusTopic()
+    {
+        // Use hierarchical structure if configured, otherwise fall back to legacy structure
+        if (!string.IsNullOrEmpty(_settings.Company) && !string.IsNullOrEmpty(_settings.Location) && !string.IsNullOrEmpty(_settings.MachineId))
+        {
+            return MqttTopicBuilder.BuildStatusTopic(_settings.BaseTopic, _settings.Company, _settings.Location, _settings.MachineId);
+        }
+        else
+        {
+            return string.Join('/', _settings.BaseTopic, Environment.MachineName, "status");
+        }
+    }
 }
