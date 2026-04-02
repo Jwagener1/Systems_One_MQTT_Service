@@ -143,8 +143,15 @@ begin
       '    "Username": "' + MqttPage.Values[4] + '",' + #13#10 +
       '    "Password": "' + MqttPage.Values[5] + '",' + #13#10 +
       '    "BaseTopic": "test",' + #13#10 +
-      '    "EncryptionTLS": ' + 
-        (if (Pos('wss://', LowerCase(BrokerUrl)) > 0) or (Pos('mqtts://', LowerCase(BrokerUrl)) > 0) then 'true' else 'false') + ',' + #13#10 +
+      '    "EncryptionTLS": ';
+    
+    // Add TLS setting based on URL scheme
+    if (Pos('wss://', LowerCase(BrokerUrl)) > 0) or (Pos('mqtts://', LowerCase(BrokerUrl)) > 0) then
+      ConfigContent := ConfigContent + 'true'
+    else
+      ConfigContent := ConfigContent + 'false';
+    
+    ConfigContent := ConfigContent + ',' + #13#10 +
       '    "ValidateCertificate": true' + #13#10 +
       '  }' + #13#10 +
       '}';

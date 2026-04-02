@@ -66,17 +66,9 @@ public class MqttMetricPublisher : IMetricPublisher
                 .WithWebSocketServer(options =>
                 {
                     options.WithUri($"{(useTls ? "wss" : "ws")}://{cleanUrl}:{port}{_settings.BasePath ?? ""}");
-                    if (!_settings.ValidateCertificate)
-                    {
-                        options.WithTlsOptions(tlsOptions =>
-                        {
-                            tlsOptions.WithIgnoreCertificateRevocationErrors()
-                                     .WithIgnoreCertificateChainErrors()
-                                     .WithAllowUntrustedCertificates();
-                        });
-                    }
                 });
             
+            // TLS configuration for WebSocket is handled in the URI scheme (wss vs ws)
             _logger.LogDebug("Configuring WebSocket MQTT connection to {Protocol}://{Host}:{Port}{Path}",
                 useTls ? "wss" : "ws", cleanUrl, port, _settings.BasePath ?? "");
         }
@@ -111,6 +103,17 @@ public class MqttMetricPublisher : IMetricPublisher
             .WithWillTopic(statusTopic)
             .WithWillPayload("offline")
             .WithKeepAlivePeriod(TimeSpan.FromSeconds(30));
+
+        // Configure TLS certificate validation if using TLS
+        if (useTls && !_settings.ValidateCertificate)
+        {
+            builder = builder.WithTlsOptions(tlsOptions =>
+            {
+                tlsOptions.WithIgnoreCertificateRevocationErrors()
+                         .WithIgnoreCertificateChainErrors()
+                         .WithAllowUntrustedCertificates();
+            });
+        }
 
         if (!string.IsNullOrEmpty(_settings.Username))
         {
