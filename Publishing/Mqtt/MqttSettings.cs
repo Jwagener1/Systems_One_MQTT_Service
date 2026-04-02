@@ -8,4 +8,7 @@ public class MqttSettings
     public string? Username { get; set; }
     public string? Password { get; set; }
     public string BaseTopic { get; set; } = "systems-one";
+    public bool ValidateCertificate { get; set; } = true;
+    public bool EncryptionTLS { get; set; } = false;
+    public string? BasePath { get; set; }
 }

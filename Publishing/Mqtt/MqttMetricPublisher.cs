@@ -50,9 +50,63 @@ public class MqttMetricPublisher : IMetricPublisher
         };
 
         var statusTopic = BuildStatusTopic();
+        var brokerUrl = _settings.BrokerUrl?.Trim() ?? "mqtt://localhost";
+        var isWebSocket = brokerUrl.StartsWith("ws://") || brokerUrl.StartsWith("wss://");
+        var useTls = _settings.EncryptionTLS || brokerUrl.StartsWith("mqtts://") || brokerUrl.StartsWith("wss://");
 
-        var builder = new MqttClientOptionsBuilder()
-            .WithTcpServer(_settings.BrokerUrl?.Replace("mqtt://", string.Empty) ?? "localhost", _settings.BrokerPort)
+        MqttClientOptionsBuilder builder;
+
+        if (isWebSocket)
+        {
+            // WebSocket connection
+            var cleanUrl = brokerUrl.Replace("ws://", "").Replace("wss://", "");
+            var port = _settings.BrokerPort > 0 ? _settings.BrokerPort : (useTls ? 443 : 80);
+            
+            builder = new MqttClientOptionsBuilder()
+                .WithWebSocketServer(options =>
+                {
+                    options.WithUri($"{(useTls ? "wss" : "ws")}://{cleanUrl}:{port}{_settings.BasePath ?? ""}");
+                    if (!_settings.ValidateCertificate)
+                    {
+                        options.WithTlsOptions(tlsOptions =>
+                        {
+                            tlsOptions.WithIgnoreCertificateRevocationErrors()
+                                     .WithIgnoreCertificateChainErrors()
+                                     .WithAllowUntrustedCertificates();
+                        });
+                    }
+                });
+            
+            _logger.LogDebug("Configuring WebSocket MQTT connection to {Protocol}://{Host}:{Port}{Path}",
+                useTls ? "wss" : "ws", cleanUrl, port, _settings.BasePath ?? "");
+        }
+        else
+        {
+            // TCP connection
+            var cleanUrl = brokerUrl.Replace("mqtt://", "").Replace("mqtts://", "");
+            var port = _settings.BrokerPort > 0 ? _settings.BrokerPort : (useTls ? 8883 : 1883);
+            
+            builder = new MqttClientOptionsBuilder()
+                .WithTcpServer(cleanUrl, port);
+            
+            if (useTls)
+            {
+                builder = builder.WithTlsOptions(tlsOptions =>
+                {
+                    if (!_settings.ValidateCertificate)
+                    {
+                        tlsOptions.WithIgnoreCertificateRevocationErrors()
+                                 .WithIgnoreCertificateChainErrors()
+                                 .WithAllowUntrustedCertificates();
+                    }
+                });
+            }
+            
+            _logger.LogDebug("Configuring TCP MQTT connection to {Protocol}://{Host}:{Port}",
+                useTls ? "mqtts" : "mqtt", cleanUrl, port);
+        }
+
+        builder = builder
             .WithClientId(_settings.ClientId ?? Environment.MachineName)
             .WithWillTopic(statusTopic)
             .WithWillPayload("offline")
@@ -66,8 +120,8 @@ public class MqttMetricPublisher : IMetricPublisher
 
         _clientOptions = builder.Build();
 
-        _logger.LogInformation("Connecting to MQTT broker {Broker}:{Port} (ClientId={ClientId})",
-            _settings.BrokerUrl, _settings.BrokerPort, _settings.ClientId ?? Environment.MachineName);
+        _logger.LogInformation("Connecting to MQTT broker {Broker} (ClientId={ClientId}, Protocol={Protocol})",
+            brokerUrl, _settings.ClientId ?? Environment.MachineName, isWebSocket ? "WebSocket" : "TCP");
 
         await ConnectWithRetryAsync(5, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30), cancellationToken);
 

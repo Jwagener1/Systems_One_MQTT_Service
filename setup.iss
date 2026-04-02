@@ -89,29 +89,35 @@ begin
     'MQTT Configuration',
     'Enter the MQTT broker connection details.',
     'These credentials will be stored securely on this machine.');
-  MqttPage.Add('Broker URL (e.g. mqtt://192.168.1.16):', False);
-  MqttPage.Add('Port:', False);
+  MqttPage.Add('Broker URL (ws:// or mqtt://):', False);
+  MqttPage.Add('Port (leave blank for default):', False);
+  MqttPage.Add('Base Path (optional):', False);
   MqttPage.Add('Client ID:', False);
-  MqttPage.Add('Base Topic:', False);
   MqttPage.Add('Username:', False);
   MqttPage.Add('Password:', False);
 
   // Set defaults
-  MqttPage.Values[0] := 'mqtt://192.168.1.16';
-  MqttPage.Values[1] := '1883';
-  MqttPage.Values[2] := 'systems-one-service';
-  MqttPage.Values[3] := 'test';
-  MqttPage.Values[4] := '';
-  MqttPage.Values[5] := '';
+  MqttPage.Values[0] := 'ws://mqtt.sysone.co.za';
+  MqttPage.Values[1] := '';
+  MqttPage.Values[2] := '';
+  MqttPage.Values[3] := 'systems-one-service';
+  MqttPage.Values[4] := 'admin';
+  MqttPage.Values[5] := 'admin';
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ConfigContent: String;
   ConfigPath: String;
+  MqttPort: String;
+  BrokerUrl: String;
 begin
   if CurStep = ssPostInstall then
   begin
+    BrokerUrl := MqttPage.Values[0];
+    MqttPort := MqttPage.Values[1];
+    
+    // Auto-detect TLS based on URL scheme
     ConfigContent :=
       '{' + #13#10 +
       '  "Database": {' + #13#10 +
@@ -122,12 +128,24 @@ begin
       '    "Password": "' + DbPage.Values[4] + '"' + #13#10 +
       '  },' + #13#10 +
       '  "Mqtt": {' + #13#10 +
-      '    "BrokerUrl": "' + MqttPage.Values[0] + '",' + #13#10 +
-      '    "BrokerPort": ' + MqttPage.Values[1] + ',' + #13#10 +
-      '    "ClientId": "' + MqttPage.Values[2] + '",' + #13#10 +
-      '    "BaseTopic": "' + MqttPage.Values[3] + '",' + #13#10 +
+      '    "BrokerUrl": "' + BrokerUrl + '",' + #13#10;
+    
+    // Only add port if specified
+    if MqttPort <> '' then
+      ConfigContent := ConfigContent + '    "BrokerPort": ' + MqttPort + ',' + #13#10;
+    
+    // Add base path if specified  
+    if MqttPage.Values[2] <> '' then
+      ConfigContent := ConfigContent + '    "BasePath": "' + MqttPage.Values[2] + '",' + #13#10;
+    
+    ConfigContent := ConfigContent +
+      '    "ClientId": "' + MqttPage.Values[3] + '",' + #13#10 +
       '    "Username": "' + MqttPage.Values[4] + '",' + #13#10 +
-      '    "Password": "' + MqttPage.Values[5] + '"' + #13#10 +
+      '    "Password": "' + MqttPage.Values[5] + '",' + #13#10 +
+      '    "BaseTopic": "test",' + #13#10 +
+      '    "EncryptionTLS": ' + 
+        (if (Pos('wss://', LowerCase(BrokerUrl)) > 0) or (Pos('mqtts://', LowerCase(BrokerUrl)) > 0) then 'true' else 'false') + ',' + #13#10 +
+      '    "ValidateCertificate": true' + #13#10 +
       '  }' + #13#10 +
       '}';
 
