@@ -129,12 +129,14 @@ begin
   TopicPage.Add('Location (e.g., WRH):', False);
   TopicPage.Add('Machine ID (e.g., DIM2):', False);
   TopicPage.Add('Base Topic:', False);
+  TopicPage.Add('Serial Number (e.g., 018389-01-3):', False);
 
   // Set defaults
   TopicPage.Values[0] := 'PEPKOR';
   TopicPage.Values[1] := 'WRH';
   TopicPage.Values[2] := 'DIM2';
   TopicPage.Values[3] := 'systems-one';
+  TopicPage.Values[4] := '';
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -178,6 +180,7 @@ begin
       '    "Company": "' + TopicPage.Values[0] + '",' + #13#10 +
       '    "Location": "' + TopicPage.Values[1] + '",' + #13#10 +
       '    "MachineId": "' + TopicPage.Values[2] + '",' + #13#10 +
+      '    "SerialNumber": "' + TopicPage.Values[4] + '",' + #13#10 +
       '    "EncryptionTLS": ';
     
     // Add TLS setting based on URL scheme

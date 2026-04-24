@@ -326,6 +326,7 @@ public class MqttMetricPublisher : IMetricPublisher
         
         var payload = JsonSerializer.Serialize(new
         {
+            serial_number = _settings.SerialNumber,
             metric.Id,
             metric.Name,
             metric.Value,

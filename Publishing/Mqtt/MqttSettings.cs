@@ -16,4 +16,5 @@ public class MqttSettings
     public string? Company { get; set; }
     public string? Location { get; set; }
     public string? MachineId { get; set; }
+    public string? SerialNumber { get; set; }
 }
