@@ -54,9 +54,6 @@ Filename: "cmd.exe"; Parameters: "/c timeout /t 3 /nobreak >nul"; \
 ; Create the service fresh with Production environment
 Filename: "sc.exe"; Parameters: "create ""{#MyAppName}"" binPath=""{app}\{#MyAppExeName}"" start=auto obj=LocalSystem"; \
   Flags: runhidden; StatusMsg: "Installing Windows Service (as LocalSystem)..."
-; Set environment variable for the service
-Filename: "reg.exe"; Parameters: "add ""HKLM\SYSTEM\CurrentControlSet\Services\{#MyAppName}"" /v Environment /t REG_MULTI_SZ /d ""DOTNET_ENVIRONMENT=Production"" /f"; \
-  Flags: runhidden; StatusMsg: "Configuring service environment..."
 Filename: "sc.exe"; Parameters: "failure ""{#MyAppName}"" reset=86400 actions=restart/5000/restart/10000/restart/30000"; \
   Flags: runhidden; StatusMsg: "Configuring service recovery..."
 Filename: "sc.exe"; Parameters: "start ""{#MyAppName}"""; \
@@ -151,27 +148,33 @@ begin
     BrokerUrl := MqttPage.Values[0];
     MqttPort := MqttPage.Values[1];
     
-    // Auto-detect TLS based on URL scheme
+    // Build the complete appsettings.json with all sections
     ConfigContent :=
       '{' + #13#10 +
+      '  "AppCollector": {' + #13#10 +
+      '    "ExePath": "C:\\Program Files\\SystemsOne\\StaticInstaller\\Sys_One_Static_App.exe",' + #13#10 +
+      '    "SettingsDir": "C:\\Users\\Public\\Documents\\SystemOne_App_Settings"' + #13#10 +
+      '  },' + #13#10 +
       '  "Database": {' + #13#10 +
       '    "Server": "' + DbPage.Values[0] + '",' + #13#10 +
       '    "DatabaseName": "' + DbPage.Values[1] + '",' + #13#10 +
       '    "TableName": "' + DbPage.Values[2] + '",' + #13#10 +
       '    "Username": "' + DbPage.Values[3] + '",' + #13#10 +
-      '    "Password": "' + DbPage.Values[4] + '"' + #13#10 +
+      '    "Password": "' + DbPage.Values[4] + '",' + #13#10 +
+      '    "TimeoutSeconds": 30' + #13#10 +
+      '  },' + #13#10 +
+      '  "Monitoring": {' + #13#10 +
+      '    "IntervalMinutes": 5' + #13#10 +
       '  },' + #13#10 +
       '  "Mqtt": {' + #13#10 +
       '    "BrokerUrl": "' + BrokerUrl + '",' + #13#10;
-    
-    // Only add port if specified
+
+    // Only add port if specified, otherwise use 0 (auto-detect)
     if MqttPort <> '' then
-      ConfigContent := ConfigContent + '    "BrokerPort": ' + MqttPort + ',' + #13#10;
-    
-    // Add base path if specified  
-    if MqttPage.Values[2] <> '' then
-      ConfigContent := ConfigContent + '    "BasePath": "' + MqttPage.Values[2] + '",' + #13#10;
-    
+      ConfigContent := ConfigContent + '    "BrokerPort": ' + MqttPort + ',' + #13#10
+    else
+      ConfigContent := ConfigContent + '    "BrokerPort": 0,' + #13#10;
+
     ConfigContent := ConfigContent +
       '    "ClientId": "' + MqttPage.Values[3] + '",' + #13#10 +
       '    "Username": "' + MqttPage.Values[4] + '",' + #13#10 +
@@ -181,20 +184,21 @@ begin
       '    "Location": "' + TopicPage.Values[1] + '",' + #13#10 +
       '    "MachineId": "' + TopicPage.Values[2] + '",' + #13#10 +
       '    "SerialNumber": "' + TopicPage.Values[4] + '",' + #13#10 +
+      '    "BasePath": "' + MqttPage.Values[2] + '",' + #13#10 +
       '    "EncryptionTLS": ';
-    
-    // Add TLS setting based on URL scheme
+
+    // Set TLS based on URL scheme
     if (Pos('wss://', LowerCase(BrokerUrl)) > 0) or (Pos('mqtts://', LowerCase(BrokerUrl)) > 0) then
       ConfigContent := ConfigContent + 'true'
     else
       ConfigContent := ConfigContent + 'false';
-    
+
     ConfigContent := ConfigContent + ',' + #13#10 +
       '    "ValidateCertificate": true' + #13#10 +
       '  }' + #13#10 +
       '}';
 
-    ConfigPath := ExpandConstant('{app}\appsettings.Production.json');
+    ConfigPath := ExpandConstant('{app}\appsettings.json');
     SaveStringToFile(ConfigPath, ConfigContent, False);
   end;
 end;
