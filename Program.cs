@@ -10,67 +10,17 @@ using Systems_One_MQTT_Service.Infrastructure;
 using Systems_One_MQTT_Service.Publishing.Mqtt;
 using Systems_One_MQTT_Service.Logging;
 
-// ──────────────────────────────────────────────────────────────────
-// Configuration loading order:
-//   1. {AppDirectory}\appsettings.json (base settings)
-//   2. {AppDirectory}\appsettings.{Environment}.json (environment-specific)
-//   3. C:\Users\Public\Documents\MQTT_Service\appsettings.json (legacy shared location)
-//
-// Environment defaults to "Production" for deployed service
-// ──────────────────────────────────────────────────────────────────
-
-var sharedConfigDir = @"C:\Users\Public\Documents\MQTT_Service";
-var sharedConfigPath = Path.Combine(sharedConfigDir, "appsettings.json");
-
-// Detect environment from DOTNET_ENVIRONMENT or ASPNETCORE_ENVIRONMENT
-var environment = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
-    ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
-    ?? "Production";
-
 var builder = Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings
 {
     Args = args,
     ApplicationName = "Systems One MQTT Service",
     ContentRootPath = AppContext.BaseDirectory,
-    EnvironmentName = environment,
     DisableDefaults = true
 });
 
-// Load config in order of precedence
-var appDirConfigPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
-var envConfigPath = Path.Combine(AppContext.BaseDirectory, $"appsettings.{environment}.json");
-
-// 1. Base configuration
-if (File.Exists(appDirConfigPath))
-{
-    builder.Configuration.AddJsonFile(appDirConfigPath, optional: false, reloadOnChange: true);
-    Console.WriteLine($"[Config] Base: {appDirConfigPath}");
-}
-
-// 2. Environment-specific configuration (this is where installer puts settings)
-if (File.Exists(envConfigPath))
-{
-    builder.Configuration.AddJsonFile(envConfigPath, optional: false, reloadOnChange: true);
-    Console.WriteLine($"[Config] Environment ({environment}): {envConfigPath}");
-}
-
-// 3. Legacy shared location (fallback for existing installations)
-if (File.Exists(sharedConfigPath))
-{
-    builder.Configuration.AddJsonFile(sharedConfigPath, optional: true, reloadOnChange: true);
-    Console.WriteLine($"[Config] Legacy: {sharedConfigPath}");
-}
-
-if (!File.Exists(appDirConfigPath) && !File.Exists(envConfigPath) && !File.Exists(sharedConfigPath))
-{
-    Console.WriteLine($"[Config] WARNING: No configuration files found:");
-    Console.WriteLine($"  - {appDirConfigPath}");
-    Console.WriteLine($"  - {envConfigPath}");
-    Console.WriteLine($"  - {sharedConfigPath}");
-    Console.WriteLine($"  Service will start with default values.");
-}
-
-Console.WriteLine($"[Config] Environment: {environment}");
+// Load settings from the single appsettings.json next to the executable
+var configPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+builder.Configuration.AddJsonFile(configPath, optional: false, reloadOnChange: true);
 
 // Set up logging
 SerilogStartup.ConfigureSerilog(builder);
