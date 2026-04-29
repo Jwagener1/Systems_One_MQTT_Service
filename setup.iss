@@ -91,11 +91,11 @@ begin
   DbPage.Add('Password:', False);
 
   // Set defaults
-  DbPage.Values[0] := '192.168.1.16,1433';
+  DbPage.Values[0] := 'localhost';
   DbPage.Values[1] := 'Systems_One';
   DbPage.Values[2] := 'ItemLog';
-  DbPage.Values[3] := '';
-  DbPage.Values[4] := '';
+  DbPage.Values[3] := 'SysOne';
+  DbPage.Values[4] := 'SysOne012!';
 
   // MQTT configuration page
   MqttPage := CreateInputQueryPage(DbPage.ID,
@@ -105,7 +105,6 @@ begin
   MqttPage.Add('Broker URL (ws:// or mqtt://):', False);
   MqttPage.Add('Port (leave blank for default):', False);
   MqttPage.Add('Base Path (optional):', False);
-  MqttPage.Add('Client ID:', False);
   MqttPage.Add('Username:', False);
   MqttPage.Add('Password:', False);
 
@@ -113,9 +112,8 @@ begin
   MqttPage.Values[0] := 'ws://mqtt.sysone.co.za';
   MqttPage.Values[1] := '';
   MqttPage.Values[2] := '';
-  MqttPage.Values[3] := 'systems-one-service';
+  MqttPage.Values[3] := 'admin';
   MqttPage.Values[4] := 'admin';
-  MqttPage.Values[5] := 'admin';
 
   // Topic structure configuration page
   TopicPage := CreateInputQueryPage(MqttPage.ID,
@@ -129,9 +127,9 @@ begin
   TopicPage.Add('Serial Number (e.g., 018389-01-3):', False);
 
   // Set defaults
-  TopicPage.Values[0] := 'PEPKOR';
-  TopicPage.Values[1] := 'WRH';
-  TopicPage.Values[2] := 'DIM2';
+  TopicPage.Values[0] := '';
+  TopicPage.Values[1] := '';
+  TopicPage.Values[2] := '';
   TopicPage.Values[3] := 'systems-one';
   TopicPage.Values[4] := '';
 end;
@@ -152,7 +150,7 @@ begin
     ConfigContent :=
       '{' + #13#10 +
       '  "AppCollector": {' + #13#10 +
-      '    "ExePath": "C:\\Program Files\\SystemsOne\\StaticInstaller\\Sys_One_Static_App.exe",' + #13#10 +
+      '    "ExePath": "C:\\Program Files (x86)\\Systems-One\\App\\Sys_One_Static_App.exe",' + #13#10 +
       '    "SettingsDir": "C:\\Users\\Public\\Documents\\SystemOne_App_Settings"' + #13#10 +
       '  },' + #13#10 +
       '  "Database": {' + #13#10 +
@@ -176,9 +174,8 @@ begin
       ConfigContent := ConfigContent + '    "BrokerPort": 0,' + #13#10;
 
     ConfigContent := ConfigContent +
-      '    "ClientId": "' + MqttPage.Values[3] + '",' + #13#10 +
-      '    "Username": "' + MqttPage.Values[4] + '",' + #13#10 +
-      '    "Password": "' + MqttPage.Values[5] + '",' + #13#10 +
+      '    "Username": "' + MqttPage.Values[3] + '",' + #13#10 +
+      '    "Password": "' + MqttPage.Values[4] + '",' + #13#10 +
       '    "BaseTopic": "' + TopicPage.Values[3] + '",' + #13#10 +
       '    "Company": "' + TopicPage.Values[0] + '",' + #13#10 +
       '    "Location": "' + TopicPage.Values[1] + '",' + #13#10 +

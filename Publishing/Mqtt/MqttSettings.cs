@@ -4,7 +4,6 @@ public class MqttSettings
 {
     public string? BrokerUrl { get; set; }
     public int BrokerPort { get; set; } = 1883;
-    public string? ClientId { get; set; }
     public string? Username { get; set; }
     public string? Password { get; set; }
     public string BaseTopic { get; set; } = "systems-one";
@@ -17,4 +16,8 @@ public class MqttSettings
     public string? Location { get; set; }
     public string? MachineId { get; set; }
     public string? SerialNumber { get; set; }
+
+    public string ClientId =>
+        string.Join('_', new[] { Company, Location, MachineId, SerialNumber }
+            .Where(s => !string.IsNullOrWhiteSpace(s)));
 }

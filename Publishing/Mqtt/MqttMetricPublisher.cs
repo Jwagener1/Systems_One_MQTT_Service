@@ -106,7 +106,7 @@ public class MqttMetricPublisher : IMetricPublisher
         }
 
         builder = builder
-            .WithClientId(_settings.ClientId ?? Environment.MachineName)
+            .WithClientId(_settings.ClientId)
             .WithWillTopic(statusTopic)
             .WithWillPayload("offline")
             .WithKeepAlivePeriod(TimeSpan.FromSeconds(30));
@@ -131,7 +131,7 @@ public class MqttMetricPublisher : IMetricPublisher
         _clientOptions = builder.Build();
 
         _logger.LogInformation("Connecting to MQTT broker {Broker} (ClientId={ClientId}, Protocol={Protocol})",
-            brokerUrl, _settings.ClientId ?? Environment.MachineName, isWebSocket ? "WebSocket" : "TCP");
+            brokerUrl, _settings.ClientId, isWebSocket ? "WebSocket" : "TCP");
 
         await ConnectWithRetryAsync(5, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30), cancellationToken);
 
