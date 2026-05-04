@@ -59,7 +59,7 @@ public class TemperatureCollector : IMetricCollector
                     Value = new { celsius = tempCelsius.Value, status },
                     Unit = "°C",
                     Source = "OS",
-                    Timestamp = _clock.UtcNow
+                    Timestamp = _clock.Now
                 });
 
                 _logger.LogDebug("Temperature: {Temp}°C ({Status})", tempCelsius.Value, status);
@@ -73,7 +73,7 @@ public class TemperatureCollector : IMetricCollector
                     Value = new { celsius = (double?)null, status = "unavailable" },
                     Unit = "°C",
                     Source = "OS",
-                    Timestamp = _clock.UtcNow
+                    Timestamp = _clock.Now
                 });
                 _logger.LogDebug("Temperature: unavailable");
             }

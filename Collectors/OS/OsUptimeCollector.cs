@@ -35,7 +35,7 @@ public class OsUptimeCollector : IMetricCollector
             Value = uptimeTimeSpan.TotalSeconds,
             Unit = "seconds",
             Source = "OS",
-            Timestamp = _clock.UtcNow,
+            Timestamp = _clock.Now,
             Tags = new Dictionary<string, object>
             {
                 { "uptime_days", uptimeTimeSpan.Days },

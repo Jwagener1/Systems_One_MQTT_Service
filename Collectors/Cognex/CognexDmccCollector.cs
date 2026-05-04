@@ -30,18 +30,18 @@ public class CognexDmccCollector : IMetricCollector
     public async Task<IEnumerable<Metric>> CollectAsync(CancellationToken cancellationToken = default)
     {
         var metrics = new List<Metric>();
-        var now = _clock.UtcNow;
+        var now = _clock.Now;
 
         // Skip if not configured
         if (string.IsNullOrEmpty(_options.Host))
             return metrics;
 
-        // Only collect once per day, at or after the configured hour
-        var today = now.UtcDateTime.Date;
+        // Only collect once per day, at or after the configured hour (local PC time)
+        var today = now.DateTime.Date;
         if (_lastReportDate == today)
             return metrics;
 
-        if (now.UtcDateTime.Hour < _options.ReportHourUtc)
+        if (now.DateTime.Hour < _options.ReportHourUtc)
             return metrics;
 
         _logger.LogInformation("Running Cognex DMCC daily report for {Date}", today);

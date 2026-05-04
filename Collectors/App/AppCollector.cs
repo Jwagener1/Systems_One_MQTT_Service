@@ -44,7 +44,7 @@ public class AppCollector : IMetricCollector
     {
         _logger.LogTrace("AppCollector.CollectAsync started");
         var metrics = new List<Metric>();
-        var now = _clock.UtcNow;
+        var now = _clock.Now;
 
         var (isRunning, processCount, pathMatched) = GetProcessState(_processName, _exePath, _logger);
         _logger.LogTrace("Process state: Running={IsRunning}, Count={ProcessCount}, PathMatched={PathMatched}",

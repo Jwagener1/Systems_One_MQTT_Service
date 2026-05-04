@@ -93,7 +93,7 @@ public class DiskFreeCollector : IMetricCollector
                 Name = "Operating System Drives",
                 Value = list,
                 Source = "OS",
-                Timestamp = _clock.UtcNow,
+                Timestamp = _clock.Now,
                 Tags = new Dictionary<string, object>
                 {
                     { "drive_count", list.Count },

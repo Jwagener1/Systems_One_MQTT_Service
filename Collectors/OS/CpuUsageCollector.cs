@@ -78,7 +78,7 @@ public class CpuUsageCollector : IMetricCollector, IDisposable
                 Value = Math.Round(cpuUsage, 2),
                 Unit = "percent",
                 Source = "OS",
-                Timestamp = _clock.UtcNow,
+                Timestamp = _clock.Now,
                 Tags = new Dictionary<string, object>
                 {
                     { "processor_count", Environment.ProcessorCount }

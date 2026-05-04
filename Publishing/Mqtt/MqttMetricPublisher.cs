@@ -331,7 +331,8 @@ public class MqttMetricPublisher : IMetricPublisher
             metric.Name,
             metric.Value,
             metric.Unit,
-            Timestamp = metric.Timestamp.ToUnixTimeSeconds(),
+            Timestamp = metric.Timestamp.ToString("yyyy-MM-ddTHH:mm:sszzz"),
+            TimestampUnix = metric.Timestamp.ToUnixTimeSeconds(),
             metric.Source,
             metric.Tags
         });

@@ -63,7 +63,7 @@ public class DatabaseCollector : IMetricCollector
             Id = "db.connection",
             Name = "Database Connection Status",
             Source = "DB",
-            Timestamp = _clock.UtcNow,
+            Timestamp = _clock.Now,
             Value = false,
             Tags = new Dictionary<string, object>
             {
@@ -81,13 +81,14 @@ public class DatabaseCollector : IMetricCollector
             statusMetric.Value = true;
             _logger.LogDebug("SQL connection established");
 
-            var nowUtc = DateTime.UtcNow;
-            var endUtc = nowUtc.AddMinutes(-5);
-            var startUtc = endUtc.AddMinutes(-5);
+            // ItemDateTime in the DB is stored in local PC time, so query using local time to avoid timezone offset lag
+            var nowLocal = DateTime.Now;
+            var endLocal = nowLocal.AddMinutes(-5);
+            var startLocal = endLocal.AddMinutes(-5);
             var table = string.IsNullOrWhiteSpace(_options.TableName) ? "ItemLog" : _options.TableName!;
-            _logger.LogTrace("Querying {Table} for window {StartUtc} to {EndUtc}", table, startUtc, endUtc);
+            _logger.LogTrace("Querying {Table} for window {StartLocal} to {EndLocal}", table, startLocal, endLocal);
 
-            var summary = await ItemLogQuery.ExecuteWindowSummaryAsync(conn, table, startUtc, endUtc, cancellationToken);
+            var summary = await ItemLogQuery.ExecuteWindowSummaryAsync(conn, table, startLocal, endLocal, cancellationToken);
 
             _logger.LogDebug("Query returned summary: TotalItems={Total}, NoRead={NoRead}, DataSent={DataSent}",
                 summary.GetValueOrDefault("Total_Items"), summary.GetValueOrDefault("No_Read"), summary.GetValueOrDefault("Data_Sent"));
@@ -97,12 +98,12 @@ public class DatabaseCollector : IMetricCollector
                 Id = "db.itemlog.summary",
                 Name = "ItemLog Summary (5-minute window)",
                 Source = "DB",
-                Timestamp = _clock.UtcNow,
+                Timestamp = _clock.Now,
                 Value = summary,
                 Tags = new Dictionary<string, object>
                 {
-                    { "startUtc", startUtc },
-                    { "endUtc", endUtc }
+                    { "startLocal", startLocal },
+                    { "endLocal", endLocal }
                 }
             });
         }
@@ -114,7 +115,7 @@ public class DatabaseCollector : IMetricCollector
                 Id = "db.query.error",
                 Name = "Database Query Error",
                 Source = "DB",
-                Timestamp = _clock.UtcNow,
+                Timestamp = _clock.Now,
                 Value = ex.Message
             });
         }

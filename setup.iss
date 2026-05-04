@@ -32,7 +32,8 @@ PrivilegesRequired=admin
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-Source: "publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Never overwrite the live config — it is written by the installer Code section on fresh install only
+Source: "publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "appsettings.json"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; IconIndex: 0
@@ -42,44 +43,110 @@ Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFil
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
 
 [Run]
-; Stop existing service if upgrading
+; Stop existing service before replacing binaries
 Filename: "sc.exe"; Parameters: "stop ""{#MyAppName}"""; \
-  Flags: runhidden; StatusMsg: "Stopping existing service (if running)..."; Check: ServiceExists
-; Delete existing service if upgrading
+  Flags: runhidden; StatusMsg: "Stopping existing service..."; Check: ServiceExists
+; Wait for the service process to fully release file locks
+Filename: "cmd.exe"; Parameters: "/c timeout /t 4 /nobreak >nul"; \
+  Flags: runhidden; StatusMsg: "Waiting for service to stop..."; Check: ServiceExists
+; Remove the service registration so we can re-create it cleanly
 Filename: "sc.exe"; Parameters: "delete ""{#MyAppName}"""; \
   Flags: runhidden; StatusMsg: "Removing old service registration..."; Check: ServiceExists
-; Wait for service to fully stop/delete
-Filename: "cmd.exe"; Parameters: "/c timeout /t 3 /nobreak >nul"; \
+; Short pause to let SCM finish
+Filename: "cmd.exe"; Parameters: "/c timeout /t 2 /nobreak >nul"; \
   Flags: runhidden; StatusMsg: "Waiting for cleanup..."
-; Create the service fresh with Production environment
+; Register the service (fresh install or upgrade)
 Filename: "sc.exe"; Parameters: "create ""{#MyAppName}"" binPath=""{app}\{#MyAppExeName}"" start=auto obj=LocalSystem"; \
-  Flags: runhidden; StatusMsg: "Installing Windows Service (as LocalSystem)..."
+  Flags: runhidden; StatusMsg: "Registering Windows Service..."
+; Configure automatic restart on failure
 Filename: "sc.exe"; Parameters: "failure ""{#MyAppName}"" reset=86400 actions=restart/5000/restart/10000/restart/30000"; \
   Flags: runhidden; StatusMsg: "Configuring service recovery..."
+; Start the service
 Filename: "sc.exe"; Parameters: "start ""{#MyAppName}"""; \
   Flags: runhidden; StatusMsg: "Starting Windows Service..."
 
 [UninstallRun]
 Filename: "sc.exe"; Parameters: "stop ""{#MyAppName}"""; Flags: runhidden
+Filename: "cmd.exe"; Parameters: "/c timeout /t 3 /nobreak >nul"; Flags: runhidden
 Filename: "sc.exe"; Parameters: "delete ""{#MyAppName}"""; Flags: runhidden
 
 [Code]
+
+// ---------------------------------------------------------------------------
+// Helper: check whether the service is already registered
+// ---------------------------------------------------------------------------
 function ServiceExists(): Boolean;
 var
   ResultCode: Integer;
 begin
-  // sc query returns 0 if service exists
-  Result := Exec('sc.exe', ExpandConstant('query "{#MyAppName}"'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+  Result := Exec('sc.exe', ExpandConstant('query "{#MyAppName}"'), '',
+                 SW_HIDE, ewWaitUntilTerminated, ResultCode)
+            and (ResultCode = 0);
 end;
 
+// ---------------------------------------------------------------------------
+// Helper: read a single-line value from the existing appsettings.json.
+// Returns DefaultValue when the key is absent or the file does not exist.
+// Handles both  "Key": "value"  and  "Key": 1234  forms.
+// ---------------------------------------------------------------------------
+function ReadJsonValue(const FilePath, Key, DefaultValue: String): String;
 var
+  Lines: TArrayOfString;
+  I: Integer;
+  Line, Search, Raw: String;
+  P, Q: Integer;
+begin
+  Result := DefaultValue;
+  if not LoadStringsFromFile(FilePath, Lines) then
+    Exit;
+  Search := '"' + Key + '"';
+  for I := 0 to GetArrayLength(Lines) - 1 do
+  begin
+    Line := Trim(Lines[I]);
+    if Pos(Search, Line) > 0 then
+    begin
+      // Find the colon separator
+      P := Pos(':', Line);
+      if P = 0 then Continue;
+      Raw := Trim(Copy(Line, P + 1, Length(Line)));
+      // Remove trailing comma
+      if (Length(Raw) > 0) and (Raw[Length(Raw)] = ',') then
+        Raw := Copy(Raw, 1, Length(Raw) - 1);
+      Raw := Trim(Raw);
+      // Strip surrounding quotes when present
+      if (Length(Raw) >= 2) and (Raw[1] = '"') and (Raw[Length(Raw)] = '"') then
+        Raw := Copy(Raw, 2, Length(Raw) - 2);
+      Result := Raw;
+      Exit;
+    end;
+  end;
+end;
+
+// ---------------------------------------------------------------------------
+// Wizard page variables
+// ---------------------------------------------------------------------------
+var
+  IsUpgrade: Boolean;
+  ExistingConfigPath: String;
   DbPage: TInputQueryWizardPage;
   MqttPage: TInputQueryWizardPage;
   TopicPage: TInputQueryWizardPage;
 
+// ---------------------------------------------------------------------------
+// InitializeWizard: detect upgrade and pre-populate fields from existing config
+// ---------------------------------------------------------------------------
 procedure InitializeWizard;
+var
+  InstallDir: String;
 begin
+  // Detect whether this is an upgrade by looking for the existing binary
+  InstallDir    := ExpandConstant('{autopf}\{#MyAppName}');
+  ExistingConfigPath := InstallDir + '\appsettings.json';
+  IsUpgrade     := FileExists(ExistingConfigPath);
+
+  // ------------------------------------------------------------------
   // Database configuration page
+  // ------------------------------------------------------------------
   DbPage := CreateInputQueryPage(wpSelectDir,
     'Database Configuration',
     'Enter the SQL Server connection details.',
@@ -88,16 +155,28 @@ begin
   DbPage.Add('Database Name:', False);
   DbPage.Add('Table Name:', False);
   DbPage.Add('Username:', False);
-  DbPage.Add('Password:', False);
+  DbPage.Add('Password:', True);
 
-  // Set defaults
-  DbPage.Values[0] := 'localhost';
-  DbPage.Values[1] := 'Systems_One';
-  DbPage.Values[2] := 'ItemLog';
-  DbPage.Values[3] := 'SysOne';
-  DbPage.Values[4] := 'SysOne012!';
+  if IsUpgrade then
+  begin
+    DbPage.Values[0] := ReadJsonValue(ExistingConfigPath, 'Server',       'localhost');
+    DbPage.Values[1] := ReadJsonValue(ExistingConfigPath, 'DatabaseName', 'Systems_One');
+    DbPage.Values[2] := ReadJsonValue(ExistingConfigPath, 'TableName',    'ItemLog');
+    DbPage.Values[3] := ReadJsonValue(ExistingConfigPath, 'Username',     'SysOne');
+    DbPage.Values[4] := ReadJsonValue(ExistingConfigPath, 'Password',     '');
+  end
+  else
+  begin
+    DbPage.Values[0] := 'localhost';
+    DbPage.Values[1] := 'Systems_One';
+    DbPage.Values[2] := 'ItemLog';
+    DbPage.Values[3] := 'SysOne';
+    DbPage.Values[4] := 'SysOne012!';
+  end;
 
+  // ------------------------------------------------------------------
   // MQTT configuration page
+  // ------------------------------------------------------------------
   MqttPage := CreateInputQueryPage(DbPage.ID,
     'MQTT Configuration',
     'Enter the MQTT broker and topic structure details.',
@@ -106,34 +185,75 @@ begin
   MqttPage.Add('Port (leave blank for default):', False);
   MqttPage.Add('Base Path (optional):', False);
   MqttPage.Add('Username:', False);
-  MqttPage.Add('Password:', False);
+  MqttPage.Add('Password:', True);
 
-  // Set defaults
-  MqttPage.Values[0] := 'ws://mqtt.sysone.co.za';
-  MqttPage.Values[1] := '';
-  MqttPage.Values[2] := '';
-  MqttPage.Values[3] := 'admin';
-  MqttPage.Values[4] := 'admin';
+  if IsUpgrade then
+  begin
+    MqttPage.Values[0] := ReadJsonValue(ExistingConfigPath, 'BrokerUrl',  'ws://mqtt.sysone.co.za');
+    MqttPage.Values[1] := ReadJsonValue(ExistingConfigPath, 'BrokerPort', '0');
+    if MqttPage.Values[1] = '0' then MqttPage.Values[1] := '';
+    MqttPage.Values[2] := ReadJsonValue(ExistingConfigPath, 'BasePath',   '');
+    MqttPage.Values[3] := ReadJsonValue(ExistingConfigPath, 'Username',   'admin');
+    MqttPage.Values[4] := ReadJsonValue(ExistingConfigPath, 'Password',   '');
+  end
+  else
+  begin
+    MqttPage.Values[0] := 'ws://mqtt.sysone.co.za';
+    MqttPage.Values[1] := '';
+    MqttPage.Values[2] := '';
+    MqttPage.Values[3] := 'admin';
+    MqttPage.Values[4] := 'admin';
+  end;
 
+  // ------------------------------------------------------------------
   // Topic structure configuration page
+  // ------------------------------------------------------------------
   TopicPage := CreateInputQueryPage(MqttPage.ID,
     'Topic Structure Configuration',
     'Configure the hierarchical MQTT topic structure.',
-    'Format: base/company/location/machine - e.g., systems-one/PEPKOR/WRH/DIM2');
+    'Format: base/company/location/machine — e.g., systems-one/PEPKOR/WRH/DIM2');
   TopicPage.Add('Company (e.g., PEPKOR):', False);
   TopicPage.Add('Location (e.g., WRH):', False);
   TopicPage.Add('Machine ID (e.g., DIM2):', False);
   TopicPage.Add('Base Topic:', False);
   TopicPage.Add('Serial Number (e.g., 018389-01-3):', False);
 
-  // Set defaults
-  TopicPage.Values[0] := '';
-  TopicPage.Values[1] := '';
-  TopicPage.Values[2] := '';
-  TopicPage.Values[3] := 'systems-one';
-  TopicPage.Values[4] := '';
+  if IsUpgrade then
+  begin
+    TopicPage.Values[0] := ReadJsonValue(ExistingConfigPath, 'Company',      '');
+    TopicPage.Values[1] := ReadJsonValue(ExistingConfigPath, 'Location',     '');
+    TopicPage.Values[2] := ReadJsonValue(ExistingConfigPath, 'MachineId',    '');
+    TopicPage.Values[3] := ReadJsonValue(ExistingConfigPath, 'BaseTopic',    'systems-one');
+    TopicPage.Values[4] := ReadJsonValue(ExistingConfigPath, 'SerialNumber', '');
+  end
+  else
+  begin
+    TopicPage.Values[0] := '';
+    TopicPage.Values[1] := '';
+    TopicPage.Values[2] := '';
+    TopicPage.Values[3] := 'systems-one';
+    TopicPage.Values[4] := '';
+  end;
 end;
 
+// ---------------------------------------------------------------------------
+// Show upgrade notice on the Welcome page
+// ---------------------------------------------------------------------------
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if (CurPageID = wpWelcome) and IsUpgrade then
+    WizardForm.WelcomeLabel2.Caption :=
+      'This will UPGRADE the existing installation of {#MyAppName} to version {#MyAppVersion}.'
+      + #13#10 + #13#10
+      + 'Your current configuration has been loaded into the following pages so you can '
+      + 'review and change it. The service will be stopped, updated, and restarted automatically.'
+      + #13#10 + #13#10
+      + WizardForm.WelcomeLabel2.Caption;
+end;
+
+// ---------------------------------------------------------------------------
+// Post-install: write appsettings.json (always — user may have changed values)
+// ---------------------------------------------------------------------------
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ConfigContent: String;
@@ -144,9 +264,8 @@ begin
   if CurStep = ssPostInstall then
   begin
     BrokerUrl := MqttPage.Values[0];
-    MqttPort := MqttPage.Values[1];
-    
-    // Build the complete appsettings.json with all sections
+    MqttPort  := MqttPage.Values[1];
+
     ConfigContent :=
       '{' + #13#10 +
       '  "AppCollector": {' + #13#10 +
@@ -167,7 +286,6 @@ begin
       '  "Mqtt": {' + #13#10 +
       '    "BrokerUrl": "' + BrokerUrl + '",' + #13#10;
 
-    // Only add port if specified, otherwise use 0 (auto-detect)
     if MqttPort <> '' then
       ConfigContent := ConfigContent + '    "BrokerPort": ' + MqttPort + ',' + #13#10
     else
@@ -184,7 +302,6 @@ begin
       '    "BasePath": "' + MqttPage.Values[2] + '",' + #13#10 +
       '    "EncryptionTLS": ';
 
-    // Set TLS based on URL scheme
     if (Pos('wss://', LowerCase(BrokerUrl)) > 0) or (Pos('mqtts://', LowerCase(BrokerUrl)) > 0) then
       ConfigContent := ConfigContent + 'true'
     else

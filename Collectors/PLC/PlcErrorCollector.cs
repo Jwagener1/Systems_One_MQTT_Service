@@ -35,7 +35,7 @@ public class PlcErrorCollector : IMetricCollector, IDisposable
     public async Task<IEnumerable<Metric>> CollectAsync(CancellationToken cancellationToken = default)
     {
         var metrics = new List<Metric>();
-        var now = _clock.UtcNow;
+        var now = _clock.Now;
 
         // Ensure connected to PLC broker
         await EnsureConnectedAsync(cancellationToken);

@@ -34,7 +34,7 @@ public class OsVersionCollector : IMetricCollector
             Name = "Operating System Version",
             Value = osVersion.VersionString,
             Source = "OS",
-            Timestamp = _clock.UtcNow,
+            Timestamp = _clock.Now,
             Tags = new Dictionary<string, object>
             {
                 { "platform", osVersion.Platform.ToString() },

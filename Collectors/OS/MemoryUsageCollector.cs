@@ -79,7 +79,7 @@ public class MemoryUsageCollector : IMetricCollector, IDisposable
                 },
                 Unit = "GB",
                 Source = "OS",
-                Timestamp = _clock.UtcNow
+                Timestamp = _clock.Now
             });
 
             _logger?.LogDebug("Memory: {UsedGB:F1}GB / {TotalGB:F1}GB ({Usage:F1}%)",
