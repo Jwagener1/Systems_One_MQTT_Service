@@ -47,6 +47,20 @@ public class MqttMetricPublisher : IMetricPublisher
         _client.DisconnectedAsync += args =>
         {
             _logger.LogWarning("MQTT connection lost: {Reason}", args.Reason);
+            // Reconnect in the background so the broker does not stay disconnected
+            // for the full monitoring interval (up to 5 minutes) before the next publish.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5));
+                    await TryReconnectAsync(CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Background MQTT reconnect attempt failed");
+                }
+            });
             return Task.CompletedTask;
         };
 
@@ -109,7 +123,7 @@ public class MqttMetricPublisher : IMetricPublisher
             .WithClientId(_settings.ClientId)
             .WithWillTopic(statusTopic)
             .WithWillPayload("offline")
-            .WithKeepAlivePeriod(TimeSpan.FromSeconds(30));
+            .WithKeepAlivePeriod(TimeSpan.FromMinutes(8));
 
         // Configure TLS certificate validation if using TLS
         if (useTls && !_settings.ValidateCertificate)

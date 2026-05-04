@@ -17,7 +17,16 @@ public class MqttSettings
     public string? MachineId { get; set; }
     public string? SerialNumber { get; set; }
 
-    public string ClientId =>
-        string.Join('_', new[] { Company, Location, MachineId, SerialNumber }
-            .Where(s => !string.IsNullOrWhiteSpace(s)));
+    public string ClientId
+    {
+        get
+        {
+            var parts = new[] { Company, Location, MachineId, SerialNumber }
+                .Where(s => !string.IsNullOrWhiteSpace(s));
+            var id = string.Join('_', parts);
+            // Always fall back to MachineName so ClientId is never empty.
+            // An empty or duplicate ClientId causes the broker to kick existing connections.
+            return string.IsNullOrWhiteSpace(id) ? Environment.MachineName : id;
+        }
+    }
 }
