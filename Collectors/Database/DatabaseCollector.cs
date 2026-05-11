@@ -81,14 +81,27 @@ public class DatabaseCollector : IMetricCollector
             statusMetric.Value = true;
             _logger.LogDebug("SQL connection established");
 
-            // ItemDateTime in the DB is stored in local PC time, so query using local time to avoid timezone offset lag
+            // ItemDateTime / Item_Date_Time in the DB is stored in local PC time, so query using local time
             var nowLocal = DateTime.Now;
             var endLocal = nowLocal.AddMinutes(-5);
             var startLocal = endLocal.AddMinutes(-5);
-            var table = string.IsNullOrWhiteSpace(_options.TableName) ? "ItemLog" : _options.TableName!;
-            _logger.LogTrace("Querying {Table} for window {StartLocal} to {EndLocal}", table, startLocal, endLocal);
 
-            var summary = await ItemLogQuery.ExecuteWindowSummaryAsync(conn, table, startLocal, endLocal, cancellationToken);
+            var defaultTable = _options.SchemaType switch
+            {
+                DbSchemaType.Snowsoft  => "tbl_Scanned_Items",
+                DbSchemaType.Madibana => "tbl_Measurement",
+                _                     => "ItemLog"
+            };
+            var table = string.IsNullOrWhiteSpace(_options.TableName) ? defaultTable : _options.TableName!;
+            _logger.LogTrace("Querying {Table} (schema={Schema}) for window {StartLocal} to {EndLocal}", table, _options.SchemaType, startLocal, endLocal);
+
+            Dictionary<string, int> summary;
+            if (_options.SchemaType == DbSchemaType.Snowsoft)
+                summary = await SnowsoftItemLogQuery.ExecuteWindowSummaryAsync(conn, table, startLocal, endLocal, cancellationToken);
+            else if (_options.SchemaType == DbSchemaType.Madibana)
+                summary = await MadibanaItemLogQuery.ExecuteWindowSummaryAsync(conn, table, startLocal, endLocal, cancellationToken);
+            else
+                summary = await ItemLogQuery.ExecuteWindowSummaryAsync(conn, table, startLocal, endLocal, cancellationToken);
 
             _logger.LogDebug("Query returned summary: TotalItems={Total}, NoRead={NoRead}, DataSent={DataSent}",
                 summary.GetValueOrDefault("Total_Items"), summary.GetValueOrDefault("No_Read"), summary.GetValueOrDefault("Data_Sent"));

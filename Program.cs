@@ -9,6 +9,7 @@ using Systems_One_MQTT_Service.Hosting;
 using Systems_One_MQTT_Service.Infrastructure;
 using Systems_One_MQTT_Service.Publishing.Mqtt;
 using Systems_One_MQTT_Service.Logging;
+using Systems_One_MQTT_Service.UI;
 
 var builder = Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings
 {
@@ -90,4 +91,15 @@ builder.Services.AddHostedService<MonitoringWorker>();
 builder.Services.AddHostedService<AppRealtimeWorker>();
 
 var host = builder.Build();
-await host.RunAsync();
+
+// When running interactively (not as a Windows Service) show the system tray UI
+if (Environment.UserInteractive && !args.Contains("--service"))
+{
+    Application.EnableVisualStyles();
+    Application.SetCompatibleTextRenderingDefault(false);
+    Application.Run(new TrayApplicationContext(host, configPath));
+}
+else
+{
+    await host.RunAsync();
+}
