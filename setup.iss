@@ -151,11 +151,15 @@ begin
     case C of
       '\': Result := Result + '\\';
       '"': Result := Result + '\"';
-      #13: Result := Result + '\r';
-      #10: Result := Result + '\n';
-      #9 : Result := Result + '\t';
     else
-      Result := Result + C;
+      if C = Chr(13) then
+        Result := Result + '\r'
+      else if C = Chr(10) then
+        Result := Result + '\n'
+      else if C = Chr(9) then
+        Result := Result + '\t'
+      else
+        Result := Result + C;
     end;
   end;
 end;
