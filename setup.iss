@@ -128,9 +128,37 @@ end;
 var
   IsUpgrade: Boolean;
   ExistingConfigPath: String;
+  AppExePage: TInputFileWizardPage;
+  AppDirPage: TInputDirWizardPage;
   DbPage: TInputQueryWizardPage;
+  SchemaPage: TInputOptionWizardPage;
   MqttPage: TInputQueryWizardPage;
   TopicPage: TInputQueryWizardPage;
+
+// ---------------------------------------------------------------------------
+// Helper: escape a string for embedding inside a JSON string literal.
+// Converts backslashes and double-quotes to their JSON-safe escape sequences.
+// ---------------------------------------------------------------------------
+function JsonEscape(const Value: String): String;
+var
+  I: Integer;
+  C: Char;
+begin
+  Result := '';
+  for I := 1 to Length(Value) do
+  begin
+    C := Value[I];
+    case C of
+      '\': Result := Result + '\\';
+      '"': Result := Result + '\"';
+      #13: Result := Result + '\r';
+      #10: Result := Result + '\n';
+      #9 : Result := Result + '\t';
+    else
+      Result := Result + C;
+    end;
+  end;
+end;
 
 // ---------------------------------------------------------------------------
 // InitializeWizard: detect upgrade and pre-populate fields from existing config
@@ -138,6 +166,7 @@ var
 procedure InitializeWizard;
 var
   InstallDir: String;
+  SchemaName: String;
 begin
   // Detect whether this is an upgrade by looking for the existing binary
   InstallDir    := ExpandConstant('{autopf}\{#MyAppName}');
@@ -145,9 +174,41 @@ begin
   IsUpgrade     := FileExists(ExistingConfigPath);
 
   // ------------------------------------------------------------------
+  // App Watcher: executable to monitor (file browser)
+  // ------------------------------------------------------------------
+  AppExePage := CreateInputFilePage(wpSelectDir,
+    'Application Watcher - Executable',
+    'Select the application executable (.exe) to monitor.',
+    'The service watches this process and collects metrics from its output. Click Browse to pick the .exe in Windows Explorer.');
+  AppExePage.Add('Application executable:',
+                 'Executable files|*.exe|All files|*.*', '.exe');
+
+  if IsUpgrade then
+    AppExePage.Values[0] := ReadJsonValue(ExistingConfigPath, 'ExePath',
+      'C:\Program Files (x86)\Systems-One\App\Sys_One_Static_App.exe')
+  else
+    AppExePage.Values[0] := 'C:\Program Files (x86)\Systems-One\App\Sys_One_Static_App.exe';
+
+  // ------------------------------------------------------------------
+  // App Watcher: settings folder (directory browser)
+  // ------------------------------------------------------------------
+  AppDirPage := CreateInputDirPage(AppExePage.ID,
+    'Application Watcher - Settings Folder',
+    'Select the folder where the monitored application stores its settings.',
+    'This folder is read by the service to enrich the published metrics.',
+    False, '');
+  AppDirPage.Add('Settings folder:');
+
+  if IsUpgrade then
+    AppDirPage.Values[0] := ReadJsonValue(ExistingConfigPath, 'SettingsDir',
+      'C:\Users\Public\Documents\SystemOne_App_Settings')
+  else
+    AppDirPage.Values[0] := 'C:\Users\Public\Documents\SystemOne_App_Settings';
+
+  // ------------------------------------------------------------------
   // Database configuration page
   // ------------------------------------------------------------------
-  DbPage := CreateInputQueryPage(wpSelectDir,
+  DbPage := CreateInputQueryPage(AppDirPage.ID,
     'Database Configuration',
     'Enter the SQL Server connection details.',
     'These credentials will be stored securely on this machine.');
@@ -161,7 +222,7 @@ begin
   begin
     DbPage.Values[0] := ReadJsonValue(ExistingConfigPath, 'Server',       'localhost');
     DbPage.Values[1] := ReadJsonValue(ExistingConfigPath, 'DatabaseName', 'Systems_One');
-    DbPage.Values[2] := ReadJsonValue(ExistingConfigPath, 'TableName',    'ItemLog');
+    DbPage.Values[2] := ReadJsonValue(ExistingConfigPath, 'TableName',    '');
     DbPage.Values[3] := ReadJsonValue(ExistingConfigPath, 'Username',     'SysOne');
     DbPage.Values[4] := ReadJsonValue(ExistingConfigPath, 'Password',     '');
   end
@@ -169,15 +230,40 @@ begin
   begin
     DbPage.Values[0] := 'localhost';
     DbPage.Values[1] := 'Systems_One';
-    DbPage.Values[2] := 'ItemLog';
+    DbPage.Values[2] := '';
     DbPage.Values[3] := 'SysOne';
     DbPage.Values[4] := 'SysOne012!';
   end;
 
   // ------------------------------------------------------------------
+  // Database schema selector page
+  // ------------------------------------------------------------------
+  SchemaPage := CreateInputOptionPage(DbPage.ID,
+    'Database Schema',
+    'Select the customer database schema to use.',
+    'Each option targets a different customer''s table layout. Choose "Default" for the standard ItemLog schema. Leave the Table Name on the previous page blank to use the schema''s default table.',
+    True, False);
+  SchemaPage.Add('Default (standard ItemLog schema)');
+  SchemaPage.Add('Snowsoft');
+  SchemaPage.Add('Madibana');
+
+  if IsUpgrade then
+  begin
+    SchemaName := Lowercase(ReadJsonValue(ExistingConfigPath, 'SchemaType', 'Default'));
+    if SchemaName = 'snowsoft' then
+      SchemaPage.SelectedValueIndex := 1
+    else if SchemaName = 'madibana' then
+      SchemaPage.SelectedValueIndex := 2
+    else
+      SchemaPage.SelectedValueIndex := 0;
+  end
+  else
+    SchemaPage.SelectedValueIndex := 0;
+
+  // ------------------------------------------------------------------
   // MQTT configuration page
   // ------------------------------------------------------------------
-  MqttPage := CreateInputQueryPage(DbPage.ID,
+  MqttPage := CreateInputQueryPage(SchemaPage.ID,
     'MQTT Configuration',
     'Enter the MQTT broker and topic structure details.',
     'These settings configure broker connection and topic hierarchy.');
@@ -260,31 +346,40 @@ var
   ConfigPath: String;
   MqttPort: String;
   BrokerUrl: String;
+  SchemaName: String;
 begin
   if CurStep = ssPostInstall then
   begin
     BrokerUrl := MqttPage.Values[0];
     MqttPort  := MqttPage.Values[1];
 
+    case SchemaPage.SelectedValueIndex of
+      1: SchemaName := 'Snowsoft';
+      2: SchemaName := 'Madibana';
+    else
+      SchemaName := 'Default';
+    end;
+
     ConfigContent :=
       '{' + #13#10 +
       '  "AppCollector": {' + #13#10 +
-      '    "ExePath": "C:\\Program Files (x86)\\Systems-One\\App\\Sys_One_Static_App.exe",' + #13#10 +
-      '    "SettingsDir": "C:\\Users\\Public\\Documents\\SystemOne_App_Settings"' + #13#10 +
+      '    "ExePath": "' + JsonEscape(AppExePage.Values[0]) + '",' + #13#10 +
+      '    "SettingsDir": "' + JsonEscape(AppDirPage.Values[0]) + '"' + #13#10 +
       '  },' + #13#10 +
       '  "Database": {' + #13#10 +
-      '    "Server": "' + DbPage.Values[0] + '",' + #13#10 +
-      '    "DatabaseName": "' + DbPage.Values[1] + '",' + #13#10 +
-      '    "TableName": "' + DbPage.Values[2] + '",' + #13#10 +
-      '    "Username": "' + DbPage.Values[3] + '",' + #13#10 +
-      '    "Password": "' + DbPage.Values[4] + '",' + #13#10 +
-      '    "TimeoutSeconds": 30' + #13#10 +
+      '    "Server": "' + JsonEscape(DbPage.Values[0]) + '",' + #13#10 +
+      '    "DatabaseName": "' + JsonEscape(DbPage.Values[1]) + '",' + #13#10 +
+      '    "TableName": "' + JsonEscape(DbPage.Values[2]) + '",' + #13#10 +
+      '    "Username": "' + JsonEscape(DbPage.Values[3]) + '",' + #13#10 +
+      '    "Password": "' + JsonEscape(DbPage.Values[4]) + '",' + #13#10 +
+      '    "TimeoutSeconds": 30,' + #13#10 +
+      '    "SchemaType": "' + SchemaName + '"' + #13#10 +
       '  },' + #13#10 +
       '  "Monitoring": {' + #13#10 +
       '    "IntervalMinutes": 5' + #13#10 +
       '  },' + #13#10 +
       '  "Mqtt": {' + #13#10 +
-      '    "BrokerUrl": "' + BrokerUrl + '",' + #13#10;
+      '    "BrokerUrl": "' + JsonEscape(BrokerUrl) + '",' + #13#10;
 
     if MqttPort <> '' then
       ConfigContent := ConfigContent + '    "BrokerPort": ' + MqttPort + ',' + #13#10
@@ -292,14 +387,14 @@ begin
       ConfigContent := ConfigContent + '    "BrokerPort": 0,' + #13#10;
 
     ConfigContent := ConfigContent +
-      '    "Username": "' + MqttPage.Values[3] + '",' + #13#10 +
-      '    "Password": "' + MqttPage.Values[4] + '",' + #13#10 +
-      '    "BaseTopic": "' + TopicPage.Values[3] + '",' + #13#10 +
-      '    "Company": "' + TopicPage.Values[0] + '",' + #13#10 +
-      '    "Location": "' + TopicPage.Values[1] + '",' + #13#10 +
-      '    "MachineId": "' + TopicPage.Values[2] + '",' + #13#10 +
-      '    "SerialNumber": "' + TopicPage.Values[4] + '",' + #13#10 +
-      '    "BasePath": "' + MqttPage.Values[2] + '",' + #13#10 +
+      '    "Username": "' + JsonEscape(MqttPage.Values[3]) + '",' + #13#10 +
+      '    "Password": "' + JsonEscape(MqttPage.Values[4]) + '",' + #13#10 +
+      '    "BaseTopic": "' + JsonEscape(TopicPage.Values[3]) + '",' + #13#10 +
+      '    "Company": "' + JsonEscape(TopicPage.Values[0]) + '",' + #13#10 +
+      '    "Location": "' + JsonEscape(TopicPage.Values[1]) + '",' + #13#10 +
+      '    "MachineId": "' + JsonEscape(TopicPage.Values[2]) + '",' + #13#10 +
+      '    "SerialNumber": "' + JsonEscape(TopicPage.Values[4]) + '",' + #13#10 +
+      '    "BasePath": "' + JsonEscape(MqttPage.Values[2]) + '",' + #13#10 +
       '    "EncryptionTLS": ';
 
     if (Pos('wss://', LowerCase(BrokerUrl)) > 0) or (Pos('mqtts://', LowerCase(BrokerUrl)) > 0) then
