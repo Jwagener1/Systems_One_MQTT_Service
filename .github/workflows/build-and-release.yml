@@ -70,8 +70,10 @@ jobs:
       - name: Set version
         id: version
         run: |
-          $version = "v$(Get-Date -Format 'yyyy.MM.dd').${{ github.run_number }}"
-          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          $numeric = "$(Get-Date -Format 'yyyy.MM.dd').${{ github.run_number }}"
+          $tag = "v$numeric"
+          echo "VERSION=$tag" >> $env:GITHUB_OUTPUT
+          echo "VERSION_NUMERIC=$numeric" >> $env:GITHUB_OUTPUT
         shell: pwsh
 
       - name: Publish application
@@ -87,7 +89,7 @@ jobs:
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
         with:
           path: setup.iss
-          options: /O+
+          options: /O+ /DMyAppVersion=${{ steps.version.outputs.VERSION_NUMERIC }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

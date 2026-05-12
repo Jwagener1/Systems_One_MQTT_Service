@@ -1,5 +1,7 @@
 #define MyAppName "Systems One MQTT Service"
-#define MyAppVersion "1.0.0"
+#ifndef MyAppVersion
+  #define MyAppVersion "0.0.0.0"
+#endif
 #define MyAppPublisher "Systems One"
 #define MyAppExeName "Systems_One_MQTT_Service.exe"
 
