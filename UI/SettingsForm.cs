@@ -21,7 +21,6 @@ public sealed class SettingsForm : Form
     // ── Database controls ────────────────────────────────────────────────────
     private readonly TextBox _dbServer      = new() { Width = 300 };
     private readonly TextBox _dbName        = new() { Width = 300 };
-    private readonly TextBox _dbTableName   = new() { Width = 200, PlaceholderText = "Leave blank for schema default" };
     private readonly TextBox _dbUsername    = new() { Width = 200 };
     private readonly TextBox _dbPassword    = new() { Width = 200, UseSystemPasswordChar = true };
     private readonly NumericUpDown _dbTimeout = new() { Minimum = 1, Maximum = 300, Width = 80 };
@@ -114,7 +113,7 @@ public sealed class SettingsForm : Form
 
         var schemaLabel = new Label
         {
-            Text      = "⚙ Choosing a schema sets the default table name and query logic for that customer.",
+            Text      = "⚙ Choosing a schema selects the table and query logic for that customer.",
             AutoSize  = true,
             ForeColor = SystemColors.GrayText,
             Padding   = new Padding(0, 0, 0, 4)
@@ -125,7 +124,6 @@ public sealed class SettingsForm : Form
         AddRow(layout, row++, "Customer Schema:", _dbSchema);
         AddRow(layout, row++, "Server:",          _dbServer);
         AddRow(layout, row++, "Database Name:",   _dbName);
-        AddRow(layout, row++, "Table Name:",      _dbTableName);
         AddRow(layout, row++, "Username:",        _dbUsername);
         AddRow(layout, row++, "Password:",        _dbPassword);
         AddRow(layout, row++, "Timeout (sec):",   _dbTimeout);
@@ -222,7 +220,6 @@ public sealed class SettingsForm : Form
             {
                 _dbServer.Text    = db["Server"]?.GetValue<string>()       ?? string.Empty;
                 _dbName.Text      = db["DatabaseName"]?.GetValue<string>() ?? string.Empty;
-                _dbTableName.Text = db["TableName"]?.GetValue<string>()    ?? string.Empty;
                 _dbUsername.Text  = db["Username"]?.GetValue<string>()     ?? string.Empty;
                 _dbPassword.Text  = db["Password"]?.GetValue<string>()     ?? string.Empty;
                 _dbTimeout.Value  = db["TimeoutSeconds"]?.GetValue<int>()  ?? 30;
@@ -275,7 +272,6 @@ public sealed class SettingsForm : Form
             {
                 ["Server"]        = _dbServer.Text,
                 ["DatabaseName"]  = _dbName.Text,
-                ["TableName"]     = _dbTableName.Text,
                 ["Username"]      = _dbUsername.Text,
                 ["Password"]      = _dbPassword.Text,
                 ["TimeoutSeconds"] = (int)_dbTimeout.Value,
@@ -340,9 +336,9 @@ public sealed class SettingsForm : Form
 
     private static readonly Dictionary<string, string> SchemaHints = new()
     {
-        ["Default"]  = "Default table: ItemLog  |  Columns: ItemDateTime, Barcode, Length, Width…",
-        ["Snowsoft"]  = "Default table: tbl_Scanned_Items  |  Columns: Item_Date_Time, No_Read, Barcode…",
-        ["Madibana"] = "Default table: tbl_Measurement  |  Columns: Item_Date_Time, No_Read, No_Dimension, Hand_Scanned…"
+        ["Default"]  = "Table: ItemLog  |  Columns: ItemDateTime, Barcode, Length, Width…",
+        ["Snowsoft"]  = "Table: tbl_Scanned_Items  |  Columns: Item_Date_Time, No_Read, Barcode…",
+        ["Madibana"] = "Table: tbl_Measurement  |  Columns: Item_Date_Time, No_Read, No_Dimension, Hand_Scanned…"
     };
 
     private void UpdateSchemaHint(Label label)

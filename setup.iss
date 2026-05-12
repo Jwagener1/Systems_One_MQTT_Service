@@ -218,7 +218,6 @@ begin
     'These credentials will be stored securely on this machine.');
   DbPage.Add('Server (host:port, e.g. 192.168.1.16,1433):', False);
   DbPage.Add('Database Name:', False);
-  DbPage.Add('Table Name:', False);
   DbPage.Add('Username:', False);
   DbPage.Add('Password:', True);
 
@@ -226,17 +225,15 @@ begin
   begin
     DbPage.Values[0] := ReadJsonValue(ExistingConfigPath, 'Server',       'localhost');
     DbPage.Values[1] := ReadJsonValue(ExistingConfigPath, 'DatabaseName', 'Systems_One');
-    DbPage.Values[2] := ReadJsonValue(ExistingConfigPath, 'TableName',    '');
-    DbPage.Values[3] := ReadJsonValue(ExistingConfigPath, 'Username',     'SysOne');
-    DbPage.Values[4] := ReadJsonValue(ExistingConfigPath, 'Password',     '');
+    DbPage.Values[2] := ReadJsonValue(ExistingConfigPath, 'Username',     'SysOne');
+    DbPage.Values[3] := ReadJsonValue(ExistingConfigPath, 'Password',     '');
   end
   else
   begin
     DbPage.Values[0] := 'localhost';
     DbPage.Values[1] := 'Systems_One';
-    DbPage.Values[2] := '';
-    DbPage.Values[3] := 'SysOne';
-    DbPage.Values[4] := 'SysOne012!';
+    DbPage.Values[2] := 'SysOne';
+    DbPage.Values[3] := 'SysOne012!';
   end;
 
   // ------------------------------------------------------------------
@@ -245,11 +242,11 @@ begin
   SchemaPage := CreateInputOptionPage(DbPage.ID,
     'Database Schema',
     'Select the customer database schema to use.',
-    'Each option targets a different customer''s table layout. Choose "Default" for the standard ItemLog schema. Leave the Table Name on the previous page blank to use the schema''s default table.',
+    'Each option targets a different customer''s table layout. Default uses ItemLog, Snowsoft uses tbl_Scanned_Items, Madibana uses tbl_Measurement.',
     True, False);
   SchemaPage.Add('Default (standard ItemLog schema)');
-  SchemaPage.Add('Snowsoft');
-  SchemaPage.Add('Madibana');
+  SchemaPage.Add('Snowsoft (tbl_Scanned_Items)');
+  SchemaPage.Add('Madibana (tbl_Measurement)');
 
   if IsUpgrade then
   begin
@@ -373,9 +370,8 @@ begin
       '  "Database": {' + #13#10 +
       '    "Server": "' + JsonEscape(DbPage.Values[0]) + '",' + #13#10 +
       '    "DatabaseName": "' + JsonEscape(DbPage.Values[1]) + '",' + #13#10 +
-      '    "TableName": "' + JsonEscape(DbPage.Values[2]) + '",' + #13#10 +
-      '    "Username": "' + JsonEscape(DbPage.Values[3]) + '",' + #13#10 +
-      '    "Password": "' + JsonEscape(DbPage.Values[4]) + '",' + #13#10 +
+      '    "Username": "' + JsonEscape(DbPage.Values[2]) + '",' + #13#10 +
+      '    "Password": "' + JsonEscape(DbPage.Values[3]) + '",' + #13#10 +
       '    "TimeoutSeconds": 30,' + #13#10 +
       '    "SchemaType": "' + SchemaName + '"' + #13#10 +
       '  },' + #13#10 +

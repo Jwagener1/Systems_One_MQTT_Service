@@ -38,8 +38,8 @@ public class DatabaseCollector : IMetricCollector
                 ConnectTimeout = _options.TimeoutSeconds
             };
             _connectionString = builder.ConnectionString;
-            _logger.LogDebug("DatabaseCollector initialized: Server={Server}, Database={Database}, Table={Table}, Timeout={Timeout}s",
-                _options.Server, _options.DatabaseName, _options.TableName, _options.TimeoutSeconds);
+            _logger.LogDebug("DatabaseCollector initialized: Server={Server}, Database={Database}, Schema={Schema}, Table={Table}, Timeout={Timeout}s",
+                _options.Server, _options.DatabaseName, _options.SchemaType, _options.GetTableName(), _options.TimeoutSeconds);
         }
         else
         {
@@ -69,7 +69,8 @@ public class DatabaseCollector : IMetricCollector
             {
                 { "server", _options.Server ?? string.Empty },
                 { "database", _options.DatabaseName ?? string.Empty },
-                { "table", _options.TableName ?? string.Empty }
+                { "schema", _options.SchemaType.ToString() },
+                { "table", _options.GetTableName() }
             }
         };
 
@@ -86,13 +87,7 @@ public class DatabaseCollector : IMetricCollector
             var endLocal = nowLocal.AddMinutes(-5);
             var startLocal = endLocal.AddMinutes(-5);
 
-            var defaultTable = _options.SchemaType switch
-            {
-                DbSchemaType.Snowsoft  => "tbl_Scanned_Items",
-                DbSchemaType.Madibana => "tbl_Measurement",
-                _                     => "ItemLog"
-            };
-            var table = string.IsNullOrWhiteSpace(_options.TableName) ? defaultTable : _options.TableName!;
+            var table = _options.GetTableName();
             _logger.LogTrace("Querying {Table} (schema={Schema}) for window {StartLocal} to {EndLocal}", table, _options.SchemaType, startLocal, endLocal);
 
             Dictionary<string, int> summary;
