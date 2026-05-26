@@ -11,15 +11,15 @@ on:
 
 jobs:
   test:
-    runs-on: windows-latest
+    runs-on: windows-2025
     name: Run Tests
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '8.0.x'
 
@@ -27,7 +27,7 @@ jobs:
         run: dotnet restore Systems_One_MQTT_Service.sln
 
       - name: Build
-        run: dotnet build Systems_One_MQTT_Service.sln --configuration Release --no-restore
+        run: dotnet build Systems_One_MQTT_Service.sln --configuration Release --no-restore --warnaserror
 
       - name: Run tests
         run: >
@@ -45,7 +45,7 @@ jobs:
           path: Tests/TestResults/test-results.trx
 
   build-and-release:
-    runs-on: windows-latest
+    runs-on: windows-2025
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
 
@@ -54,10 +54,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '8.0.x'
 
@@ -65,7 +65,7 @@ jobs:
         run: dotnet restore Systems_One_MQTT_Service.sln
 
       - name: Build
-        run: dotnet build Systems_One_MQTT_Service.sln --configuration Release --no-restore
+        run: dotnet build Systems_One_MQTT_Service.sln --configuration Release --no-restore --warnaserror
 
       - name: Set version
         id: version
