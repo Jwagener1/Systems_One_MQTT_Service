@@ -77,7 +77,7 @@ public sealed class SettingsForm : Form
         CancelButton = btnCancel;
 
         // Populate dropdown values
-        _dbSchema.Items.AddRange(new object[] { "Default", "Snowsoft", "Madibana" });
+        _dbSchema.Items.AddRange(new object[] { "Default", "Snowsoft", "Madibana", "Twinsaver" });
 
         LoadSettings();
     }
@@ -336,9 +336,10 @@ public sealed class SettingsForm : Form
 
     private static readonly Dictionary<string, string> SchemaHints = new()
     {
-        ["Default"]  = "Table: ItemLog  |  Columns: ItemDateTime, Barcode, Length, Width…",
+        ["Default"]   = "Table: ItemLog  |  Columns: ItemDateTime, Barcode, Length, Width…",
         ["Snowsoft"]  = "Table: tbl_Scanned_Items  |  Columns: Item_Date_Time, No_Read, Barcode…",
-        ["Madibana"] = "Table: tbl_Measurement  |  Columns: Item_Date_Time, No_Read, No_Dimension, Hand_Scanned…"
+        ["Madibana"]  = "Table: tbl_Measurement  |  Columns: Item_Date_Time, No_Read, No_Dimension, Hand_Scanned…",
+        ["Twinsaver"] = "Table: tbl_Line_Data  |  Columns: Print_Date, Barcode_Scanned, Printed, Uploaded, No_read, No_Data…"
     };
 
     private void UpdateSchemaHint(Label label)

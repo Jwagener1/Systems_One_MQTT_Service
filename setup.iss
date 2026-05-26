@@ -244,11 +244,12 @@ begin
   SchemaPage := CreateInputOptionPage(DbPage.ID,
     'Database Schema',
     'Select the customer database schema to use.',
-    'Each option targets a different customer''s table layout. Default uses ItemLog, Snowsoft uses tbl_Scanned_Items, Madibana uses tbl_Measurement.',
+    'Each option targets a different customer''s table layout. Default uses ItemLog, Snowsoft uses tbl_Scanned_Items, Madibana uses tbl_Measurement, Twinsaver uses tbl_Line_Data.',
     True, False);
   SchemaPage.Add('Default (standard ItemLog schema)');
   SchemaPage.Add('Snowsoft (tbl_Scanned_Items)');
   SchemaPage.Add('Madibana (tbl_Measurement)');
+  SchemaPage.Add('Twinsaver (tbl_Line_Data)');
 
   if IsUpgrade then
   begin
@@ -257,6 +258,8 @@ begin
       SchemaPage.SelectedValueIndex := 1
     else if SchemaName = 'madibana' then
       SchemaPage.SelectedValueIndex := 2
+    else if SchemaName = 'twinsaver' then
+      SchemaPage.SelectedValueIndex := 3
     else
       SchemaPage.SelectedValueIndex := 0;
   end
@@ -359,6 +362,7 @@ begin
     case SchemaPage.SelectedValueIndex of
       1: SchemaName := 'Snowsoft';
       2: SchemaName := 'Madibana';
+      3: SchemaName := 'Twinsaver';
     else
       SchemaName := 'Default';
     end;

@@ -95,6 +95,8 @@ public class DatabaseCollector : IMetricCollector
                 summary = await SnowsoftItemLogQuery.ExecuteWindowSummaryAsync(conn, table, startLocal, endLocal, cancellationToken);
             else if (_options.SchemaType == DbSchemaType.Madibana)
                 summary = await MadibanaItemLogQuery.ExecuteWindowSummaryAsync(conn, table, startLocal, endLocal, cancellationToken);
+            else if (_options.SchemaType == DbSchemaType.Twinsaver)
+                summary = await TwinsaverItemLogQuery.ExecuteWindowSummaryAsync(conn, table, startLocal, endLocal, cancellationToken);
             else
                 summary = await ItemLogQuery.ExecuteWindowSummaryAsync(conn, table, startLocal, endLocal, cancellationToken);
 
