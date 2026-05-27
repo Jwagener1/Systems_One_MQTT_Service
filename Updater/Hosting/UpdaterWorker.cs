@@ -145,7 +145,9 @@ public class UpdaterWorker : BackgroundService
         bool forcedApply = (DateTime.UtcNow - _stagedAt).TotalDays >= _settings.MaxDeferDays
                            && now.Hour == 0;
 
-        bool inWindow = now.Hour == _quietWindow.PreferredUpdateHour || forcedApply;
+        bool inWindow = _settings.BypassQuietWindow
+                        || now.Hour == _quietWindow.PreferredUpdateHour
+                        || forcedApply;
 
         if (!inWindow) return;
 

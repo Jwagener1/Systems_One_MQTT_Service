@@ -57,7 +57,7 @@ jobs:
   build-and-release:
     runs-on: windows-2025
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
 
     permissions:
       contents: write
@@ -177,4 +177,4 @@ jobs:
             ${{ steps.package.outputs.ZIP_NAME }}
             release-manifest.json
           draft: false
-          prerelease: false
+          prerelease: ${{ github.event_name == 'workflow_dispatch' }}

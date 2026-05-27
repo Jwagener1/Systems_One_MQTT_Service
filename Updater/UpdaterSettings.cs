@@ -33,6 +33,13 @@ public class UpdaterSettings
     public double QuietThresholdPercent { get; set; } = 10.0;
 
     // Derived paths — not configurable
+    /// <summary>
+    /// When true, skips the quiet-window and activity checks and applies any staged
+    /// update immediately on the next gate tick. Set to true during testing only.
+    /// </summary>
+    public bool BypassQuietWindow { get; set; } = false;
+
+    // Derived paths — not configurable
     public string DownloadsDir    => Path.Combine(UpdateCacheDir, "downloads");
     public string StagingDir      => Path.Combine(UpdateCacheDir, "staging");
     public string BackupDir       => Path.Combine(UpdateCacheDir, "backup");
