@@ -11,7 +11,7 @@ public class UpdaterSettings
 
     /// <summary>Install directory of the main service — binaries are swapped here.</summary>
     public string MainServiceInstallDir { get; set; } =
-        @"C:\Program Files\Systems One MQTT Service";
+        @"C:\Program Files (x86)\Systems One MQTT Service";
 
     /// <summary>Working area for downloads, staging, and backup.</summary>
     public string UpdateCacheDir { get; set; } =
