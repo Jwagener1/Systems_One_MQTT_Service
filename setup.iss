@@ -6,7 +6,6 @@
 #define MyAppExeName "Systems_One_MQTT_Service.exe"
 #define UpdaterName "Systems One MQTT Updater"
 #define UpdaterExeName "Systems_One_MQTT_Updater.exe"
-#define UpdaterDir "{autopf}\{#UpdaterName}"
 
 [Setup]
 AppId={{B7E3F1A2-9C4D-4E8F-A6B1-D2C3E4F5A6B7}
@@ -40,7 +39,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 ; Never overwrite the live config — it is written by the installer Code section on fresh install only
 Source: "publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "appsettings.json"
 ; Updater service — always overwrite binaries; config is written by Code section
-Source: "updater_publish\*"; DestDir: "{#UpdaterDir}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "updater-settings.json"
+Source: "updater_publish\*"; DestDir: "{autopf}\{#UpdaterName}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "updater-settings.json"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; IconIndex: 0
@@ -81,7 +80,7 @@ Filename: "sc.exe"; Parameters: "delete ""{#UpdaterName}"""; \
   Flags: runhidden; StatusMsg: "Removing old updater service registration..."; Check: UpdaterServiceExists
 Filename: "cmd.exe"; Parameters: "/c timeout /t 2 /nobreak >nul"; \
   Flags: runhidden; StatusMsg: "Waiting for cleanup..."
-Filename: "sc.exe"; Parameters: "create ""{#UpdaterName}"" binPath=""{#UpdaterDir}\{#UpdaterExeName}"" start=auto obj=LocalSystem"; \
+Filename: "sc.exe"; Parameters: "create ""{#UpdaterName}"" binPath=""{autopf}\{#UpdaterName}\{#UpdaterExeName}"" start=auto obj=LocalSystem"; \
   Flags: runhidden; StatusMsg: "Registering Updater Service..."
 Filename: "sc.exe"; Parameters: "failure ""{#UpdaterName}"" reset=86400 actions=restart/10000/restart/30000/restart/60000"; \
   Flags: runhidden; StatusMsg: "Configuring updater service recovery..."
@@ -466,7 +465,7 @@ begin
       '  }' + #13#10 +
       '}';
 
-    ConfigPath := ExpandConstant('{#UpdaterDir}\updater-settings.json');
+    ConfigPath := ExpandConstant('{autopf}\{#UpdaterName}\updater-settings.json');
     SaveStringToFile(ConfigPath, ConfigContent, False);
   end;
 end;
