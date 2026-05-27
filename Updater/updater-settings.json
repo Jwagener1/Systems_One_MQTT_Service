@@ -1,0 +1,11 @@
+{
+  "Updater": {
+    "ManifestUrl": "https://github.com/Jwagener1/Systems_One_MQTT_Service/releases/latest/download/release-manifest.json",
+    "MainServiceName": "Systems One MQTT Service",
+    "MainServiceInstallDir": "C:\\Program Files\\Systems One MQTT Service",
+    "UpdateCacheDir": "C:\\ProgramData\\Systems One\\UpdateCache",
+    "PollIntervalHours": 1,
+    "MaxDeferDays": 7,
+    "QuietThresholdPercent": 10.0
+  }
+}

@@ -29,7 +29,7 @@ jobs:
       - name: Build
         run: dotnet build Systems_One_MQTT_Service.sln --configuration Release --no-restore --warnaserror
 
-      - name: Run tests
+      - name: Run main service tests
         run: >
           dotnet test Tests/Systems_One_MQTT_Service.Tests.csproj
           --configuration Release
@@ -37,12 +37,22 @@ jobs:
           --verbosity normal
           --logger "trx;LogFileName=test-results.trx"
 
+      - name: Run updater tests
+        run: >
+          dotnet test Updater.Tests/Systems_One_MQTT_Updater.Tests.csproj
+          --configuration Release
+          --no-build
+          --verbosity normal
+          --logger "trx;LogFileName=updater-test-results.trx"
+
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-results
-          path: Tests/TestResults/test-results.trx
+          path: |
+            Tests/TestResults/test-results.trx
+            Updater.Tests/TestResults/updater-test-results.trx
 
   build-and-release:
     runs-on: windows-2025
@@ -85,6 +95,57 @@ jobs:
           --output ./publish
           -p:PublishSingleFile=false
 
+      - name: Publish updater
+        run: >
+          dotnet publish Updater/Systems_One_MQTT_Updater.csproj
+          --configuration Release
+          --runtime win-x64
+          --self-contained true
+          --output ./updater_publish
+          -p:PublishSingleFile=false
+
+      - name: Package OTA ZIP (exclude appsettings.json)
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.VERSION_NUMERIC }}"
+          $zipName = "systems-one-mqtt-service-v${version}.zip"
+
+          # Collect all publish files except appsettings.json
+          $files = Get-ChildItem -Path ./publish -Recurse -File |
+                   Where-Object { $_.Name -ne 'appsettings.json' }
+
+          Compress-Archive -Path $files.FullName -DestinationPath $zipName
+
+          # Compute SHA-256
+          $hash = (Get-FileHash $zipName -Algorithm SHA256).Hash.ToLower()
+
+          # Emit outputs for later steps
+          echo "ZIP_NAME=$zipName"  >> $env:GITHUB_OUTPUT
+          echo "ZIP_SHA256=$hash"   >> $env:GITHUB_OUTPUT
+        id: package
+
+      - name: Generate release-manifest.json
+        shell: pwsh
+        run: |
+          $version  = "${{ steps.version.outputs.VERSION_NUMERIC }}"
+          $tag      = "${{ steps.version.outputs.VERSION }}"
+          $zipName  = "${{ steps.package.outputs.ZIP_NAME }}"
+          $sha256   = "${{ steps.package.outputs.ZIP_SHA256 }}"
+          $repo     = "${{ github.repository }}"
+          $now      = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ')
+          $url      = "https://github.com/${repo}/releases/download/${tag}/${zipName}"
+
+          $manifest = [ordered]@{
+            version              = $version
+            publishedAt          = $now
+            downloadUrl          = $url
+            sha256               = $sha256
+            minimumUpdaterVersion = "1.0.0"
+          } | ConvertTo-Json
+
+          Set-Content -Path release-manifest.json -Value $manifest -Encoding UTF8
+          Write-Host "Manifest:`n$manifest"
+
       - name: Build Inno Setup Installer
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
         with:
@@ -99,15 +160,21 @@ jobs:
           body: |
             Automated release built from commit ${{ github.sha }}.
 
-            ### What's included
-            - `Systems_One_MQTT_Service_Setup.exe` — Windows installer for the MQTT Service
+            ### Assets
+            | File | Purpose |
+            |---|---|
+            | `Systems_One_MQTT_Service_Setup.exe` | Full installer — use for first-time installs and manual upgrades |
+            | `systems-one-mqtt-service-v*.zip` | OTA payload — consumed automatically by the Updater service |
+            | `release-manifest.json` | Version manifest with SHA-256 — polled hourly by the Updater service |
 
-            ### Installation
-            Run the installer as Administrator. It will automatically install and start the Windows Service.
+            ### First-time installation
+            Run `Systems_One_MQTT_Service_Setup.exe` as Administrator.
 
-            ### Post-install: Set credentials
-            Create `appsettings.Production.json` in the install directory with your Database and MQTT credentials.
-            See `appsettings.Production.json.example` for the format.
-          files: installer_output/Systems_One_MQTT_Service_Setup.exe
+            ### OTA updates
+            Machines already running the Updater service will detect and apply this release automatically during the next quiet window.
+          files: |
+            installer_output/Systems_One_MQTT_Service_Setup.exe
+            ${{ steps.package.outputs.ZIP_NAME }}
+            release-manifest.json
           draft: false
           prerelease: false

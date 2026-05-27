@@ -7,7 +7,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <OutputType>WinExe</OutputType>
     <UserSecretsId>dotnet-Systems_One_MQTT_Service-0dc27913-ff76-4af0-b42f-42296e97453e</UserSecretsId>
-    <DefaultItemExcludes>$(DefaultItemExcludes);Tests\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);Tests\**;Updater\**;Updater.Tests\**</DefaultItemExcludes>
     
     <!-- Application icon and metadata -->
     <ApplicationIcon>Icons\systems_one.ico</ApplicationIcon>

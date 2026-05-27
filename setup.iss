@@ -4,6 +4,9 @@
 #endif
 #define MyAppPublisher "Systems One"
 #define MyAppExeName "Systems_One_MQTT_Service.exe"
+#define UpdaterName "Systems One MQTT Updater"
+#define UpdaterExeName "Systems_One_MQTT_Updater.exe"
+#define UpdaterDir "{autopf}\{#UpdaterName}"
 
 [Setup]
 AppId={{B7E3F1A2-9C4D-4E8F-A6B1-D2C3E4F5A6B7}
@@ -36,6 +39,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Files]
 ; Never overwrite the live config — it is written by the installer Code section on fresh install only
 Source: "publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "appsettings.json"
+; Updater service — always overwrite binaries; config is written by Code section
+Source: "updater_publish\*"; DestDir: "{#UpdaterDir}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "updater-settings.json"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; IconIndex: 0
@@ -67,7 +72,26 @@ Filename: "sc.exe"; Parameters: "failure ""{#MyAppName}"" reset=86400 actions=re
 Filename: "sc.exe"; Parameters: "start ""{#MyAppName}"""; \
   Flags: runhidden; StatusMsg: "Starting Windows Service..."
 
+; ── Updater service setup ──────────────────────────────────────────────────────
+Filename: "sc.exe"; Parameters: "stop ""{#UpdaterName}"""; \
+  Flags: runhidden; StatusMsg: "Stopping existing updater service..."; Check: UpdaterServiceExists
+Filename: "cmd.exe"; Parameters: "/c timeout /t 4 /nobreak >nul"; \
+  Flags: runhidden; StatusMsg: "Waiting for updater service to stop..."; Check: UpdaterServiceExists
+Filename: "sc.exe"; Parameters: "delete ""{#UpdaterName}"""; \
+  Flags: runhidden; StatusMsg: "Removing old updater service registration..."; Check: UpdaterServiceExists
+Filename: "cmd.exe"; Parameters: "/c timeout /t 2 /nobreak >nul"; \
+  Flags: runhidden; StatusMsg: "Waiting for cleanup..."
+Filename: "sc.exe"; Parameters: "create ""{#UpdaterName}"" binPath=""{#UpdaterDir}\{#UpdaterExeName}"" start=auto obj=LocalSystem"; \
+  Flags: runhidden; StatusMsg: "Registering Updater Service..."
+Filename: "sc.exe"; Parameters: "failure ""{#UpdaterName}"" reset=86400 actions=restart/10000/restart/30000/restart/60000"; \
+  Flags: runhidden; StatusMsg: "Configuring updater service recovery..."
+Filename: "sc.exe"; Parameters: "start ""{#UpdaterName}"""; \
+  Flags: runhidden; StatusMsg: "Starting Updater Service..."
+
 [UninstallRun]
+Filename: "sc.exe"; Parameters: "stop ""{#UpdaterName}"""; Flags: runhidden
+Filename: "cmd.exe"; Parameters: "/c timeout /t 2 /nobreak >nul"; Flags: runhidden
+Filename: "sc.exe"; Parameters: "delete ""{#UpdaterName}"""; Flags: runhidden
 Filename: "sc.exe"; Parameters: "stop ""{#MyAppName}"""; Flags: runhidden
 Filename: "cmd.exe"; Parameters: "/c timeout /t 3 /nobreak >nul"; Flags: runhidden
 Filename: "sc.exe"; Parameters: "delete ""{#MyAppName}"""; Flags: runhidden
@@ -75,13 +99,25 @@ Filename: "sc.exe"; Parameters: "delete ""{#MyAppName}"""; Flags: runhidden
 [Code]
 
 // ---------------------------------------------------------------------------
-// Helper: check whether the service is already registered
+// Helper: check whether the main service is already registered
 // ---------------------------------------------------------------------------
 function ServiceExists(): Boolean;
 var
   ResultCode: Integer;
 begin
   Result := Exec('sc.exe', ExpandConstant('query "{#MyAppName}"'), '',
+                 SW_HIDE, ewWaitUntilTerminated, ResultCode)
+            and (ResultCode = 0);
+end;
+
+// ---------------------------------------------------------------------------
+// Helper: check whether the updater service is already registered
+// ---------------------------------------------------------------------------
+function UpdaterServiceExists(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := Exec('sc.exe', ExpandConstant('query "{#UpdaterName}"'), '',
                  SW_HIDE, ewWaitUntilTerminated, ResultCode)
             and (ResultCode = 0);
 end;
@@ -414,6 +450,23 @@ begin
       '}';
 
     ConfigPath := ExpandConstant('{app}\appsettings.json');
+    SaveStringToFile(ConfigPath, ConfigContent, False);
+
+    // ── Write updater-settings.json ──────────────────────────────────────────
+    ConfigContent :=
+      '{' + #13#10 +
+      '  "Updater": {' + #13#10 +
+      '    "ManifestUrl": "https://github.com/Jwagener1/Systems_One_MQTT_Service/releases/latest/download/release-manifest.json",' + #13#10 +
+      '    "MainServiceName": "{#MyAppName}",' + #13#10 +
+      '    "MainServiceInstallDir": "' + JsonEscape(ExpandConstant('{app}')) + '",' + #13#10 +
+      '    "UpdateCacheDir": "' + JsonEscape(ExpandConstant('{commonappdata}\Systems One\UpdateCache')) + '",' + #13#10 +
+      '    "PollIntervalHours": 1,' + #13#10 +
+      '    "MaxDeferDays": 7,' + #13#10 +
+      '    "QuietThresholdPercent": 10.0' + #13#10 +
+      '  }' + #13#10 +
+      '}';
+
+    ConfigPath := ExpandConstant('{#UpdaterDir}\updater-settings.json');
     SaveStringToFile(ConfigPath, ConfigContent, False);
   end;
 end;
