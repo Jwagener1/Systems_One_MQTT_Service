@@ -9,10 +9,11 @@ namespace Systems_One_MQTT_Service.Tests.Collectors.Database;
 public class DatabaseCollectorOptionsTests
 {
     [Theory]
-    [InlineData(DbSchemaType.Default,   "ItemLog")]
-    [InlineData(DbSchemaType.Snowsoft,  "tbl_Scanned_Items")]
-    [InlineData(DbSchemaType.Madibana,  "tbl_Measurement")]
-    [InlineData(DbSchemaType.Twinsaver, "tbl_Line_Data")]
+    [InlineData(DbSchemaType.Default,     "ItemLog")]
+    [InlineData(DbSchemaType.Snowsoft,    "tbl_Scanned_Items")]
+    [InlineData(DbSchemaType.Madibana,    "tbl_Measurement")]
+    [InlineData(DbSchemaType.Twinsaver,   "tbl_Line_Data")]
+    [InlineData(DbSchemaType.FreightSnap, "FreightScans")]
     public void GetTableName_ReturnsExpectedTablePerSchema(DbSchemaType schema, string expectedTable)
     {
         var options = new DatabaseCollectorOptions { SchemaType = schema };
@@ -97,10 +98,11 @@ public class DatabaseCollectorTests
     }
 
     [Theory]
-    [InlineData(DbSchemaType.Default,   "ItemLog")]
-    [InlineData(DbSchemaType.Snowsoft,  "tbl_Scanned_Items")]
-    [InlineData(DbSchemaType.Madibana,  "tbl_Measurement")]
-    [InlineData(DbSchemaType.Twinsaver, "tbl_Line_Data")]
+    [InlineData(DbSchemaType.Default,     "ItemLog")]
+    [InlineData(DbSchemaType.Snowsoft,    "tbl_Scanned_Items")]
+    [InlineData(DbSchemaType.Madibana,    "tbl_Measurement")]
+    [InlineData(DbSchemaType.Twinsaver,   "tbl_Line_Data")]
+    [InlineData(DbSchemaType.FreightSnap, "FreightScans")]
     public async Task CollectAsync_StatusMetricTagsExposeResolvedTable(DbSchemaType schema, string expectedTable)
     {
         var options = Options.Create(new DatabaseCollectorOptions

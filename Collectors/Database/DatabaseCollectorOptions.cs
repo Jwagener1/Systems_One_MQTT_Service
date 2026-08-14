@@ -5,7 +5,8 @@ public enum DbSchemaType
     Default,
     Snowsoft,
     Madibana,
-    Twinsaver
+    Twinsaver,
+    FreightSnap
 }
 
 public class DatabaseCollectorOptions
@@ -23,9 +24,10 @@ public class DatabaseCollectorOptions
     /// </summary>
     public string GetTableName() => SchemaType switch
     {
-        DbSchemaType.Snowsoft  => "tbl_Scanned_Items",
-        DbSchemaType.Madibana  => "tbl_Measurement",
-        DbSchemaType.Twinsaver => "tbl_Line_Data",
-        _                      => "ItemLog"
+        DbSchemaType.Snowsoft    => "tbl_Scanned_Items",
+        DbSchemaType.Madibana    => "tbl_Measurement",
+        DbSchemaType.Twinsaver   => "tbl_Line_Data",
+        DbSchemaType.FreightSnap => "FreightScans",
+        _                        => "ItemLog"
     };
 }

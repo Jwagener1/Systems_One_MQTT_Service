@@ -11,16 +11,6 @@ namespace Systems_One_MQTT_Service.Collectors.Database;
 /// </summary>
 public static class TwinsaverItemLogQuery
 {
-    private static readonly System.Text.RegularExpressions.Regex SafeTableName =
-        new(@"^[A-Za-z_][A-Za-z0-9_]*$", System.Text.RegularExpressions.RegexOptions.Compiled);
-
-    private static string ValidateTableName(string tableName)
-    {
-        if (string.IsNullOrWhiteSpace(tableName) || !SafeTableName.IsMatch(tableName))
-            throw new ArgumentException($"Invalid table name: '{tableName}'. Only alphanumeric characters and underscores are allowed.");
-        return tableName;
-    }
-
     public static async Task<Dictionary<string, int>> ExecuteWindowSummaryAsync(
         SqlConnection connection,
         string tableName,
@@ -28,7 +18,7 @@ public static class TwinsaverItemLogQuery
         DateTime endLocal,
         CancellationToken cancellationToken)
     {
-        var safeTable = ValidateTableName(tableName);
+        var safeTable = ItemLogQuery.ValidateTableName(tableName);
         using var cmd = connection.CreateCommand();
         cmd.CommandType = CommandType.Text;
         cmd.CommandText = $@"
