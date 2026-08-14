@@ -97,6 +97,8 @@ public class DatabaseCollector : IMetricCollector
                 summary = await MadibanaItemLogQuery.ExecuteWindowSummaryAsync(conn, table, startLocal, endLocal, cancellationToken);
             else if (_options.SchemaType == DbSchemaType.Twinsaver)
                 summary = await TwinsaverItemLogQuery.ExecuteWindowSummaryAsync(conn, table, startLocal, endLocal, cancellationToken);
+            else if (_options.SchemaType == DbSchemaType.FreightSnap)
+                summary = await FreightSnapItemLogQuery.ExecuteWindowSummaryAsync(conn, table, startLocal, endLocal, cancellationToken);
             else
                 summary = await ItemLogQuery.ExecuteWindowSummaryAsync(conn, table, startLocal, endLocal, cancellationToken);
 
